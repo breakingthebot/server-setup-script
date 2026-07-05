@@ -1,0 +1,257 @@
+#!/bin/bash
+# setup_server.sh - Server setup script
+# Installs dependencies, configures environment, and sets up cron jobs.
+
+set -euo pipefail
+
+# Default configuration values
+DRY_RUN=false
+SKIP_ROOT_CHECK=false
+CONFIG_DIR="/etc/server-setup"
+CRON_DIR="/etc/cron.d"
+LOG_DIR="/var/log/server-setup"
+DEPENDENCIES="curl git htop cron"
+
+# Display usage information
+show_help() {
+  cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Options:
+  -h, --help               Show this help message and exit
+  -d, --dry-run            Show what actions would be taken without making changes
+  -s, --skip-root-check    Skip checking if script is run as root/sudo
+  -c, --config-dir DIR     Override configuration directory (default: $CONFIG_DIR)
+      --cron-dir DIR       Override cron configuration directory (default: $CRON_DIR)
+      --log-dir DIR        Override log directory (default: $LOG_DIR)
+      --dependencies LIST  Space-separated list of dependencies to install
+EOF
+}
+
+# Parse options
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      show_help
+      exit 0
+      ;;
+    -d|--dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    -s|--skip-root-check)
+      SKIP_ROOT_CHECK=true
+      shift
+      ;;
+    -c|--config-dir)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --config-dir requires an argument." >&2
+        exit 1
+      fi
+      CONFIG_DIR="$2"
+      shift 2
+      ;;
+    --cron-dir)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --cron-dir requires an argument." >&2
+        exit 1
+      fi
+      CRON_DIR="$2"
+      shift 2
+      ;;
+    --log-dir)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --log-dir requires an argument." >&2
+        exit 1
+      fi
+      LOG_DIR="$2"
+      shift 2
+      ;;
+    --dependencies)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --dependencies requires an argument." >&2
+        exit 1
+      fi
+      DEPENDENCIES="$2"
+      shift 2
+      ;;
+    *)
+      echo "Error: Unknown option $1" >&2
+      show_help >&2
+      exit 1
+      ;;
+  esac
+done
+
+echo "=== Server Setup Started ==="
+if [ "$DRY_RUN" = "true" ]; then
+  echo "--- RUNNING IN DRY-RUN MODE ---"
+fi
+
+# Check for root privileges
+if [ "$SKIP_ROOT_CHECK" = "false" ] && [ "$DRY_RUN" = "false" ]; then
+  if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+    echo "Error: This script must be run as root (or with sudo)." >&2
+    exit 1
+  fi
+fi
+
+# Detect package manager
+detect_package_manager() {
+  if command -v apt-get &>/dev/null; then
+    echo "apt"
+  elif command -v yum &>/dev/null; then
+    echo "yum"
+  elif command -v dnf &>/dev/null; then
+    echo "dnf"
+  elif command -v pacman &>/dev/null; then
+    echo "pacman"
+  else
+    echo "unknown"
+  fi
+}
+
+# Install dependencies
+install_dependencies() {
+  local pm
+  pm=$(detect_package_manager)
+  echo "Installing dependencies: $DEPENDENCIES"
+  
+  if [ "$DRY_RUN" = "true" ]; then
+    echo "[DRY RUN] Would use package manager '$pm' to install: $DEPENDENCIES"
+    return 0
+  fi
+
+  case "$pm" in
+    apt)
+      apt-get update -y
+      for dep in $DEPENDENCIES; do
+        apt-get install -y "$dep"
+      done
+      ;;
+    yum)
+      for dep in $DEPENDENCIES; do
+        yum install -y "$dep"
+      done
+      ;;
+    dnf)
+      for dep in $DEPENDENCIES; do
+        dnf install -y "$dep"
+      done
+      ;;
+    pacman)
+      for dep in $DEPENDENCIES; do
+        pacman -S --noconfirm "$dep"
+      done
+      ;;
+    *)
+      echo "Warning: Unknown or unsupported package manager. Skipping dependency installation." >&2
+      ;;
+  esac
+}
+
+# Configure environment
+configure_environment() {
+  echo "Configuring environment in $CONFIG_DIR..."
+  
+  if [ "$DRY_RUN" = "true" ]; then
+    echo "[DRY RUN] Would create directory: $CONFIG_DIR"
+    echo "[DRY RUN] Would create environment file: $CONFIG_DIR/env.conf"
+    echo "[DRY RUN] Would create log directory: $LOG_DIR"
+    return 0
+  fi
+
+  # Create directories
+  mkdir -p "$CONFIG_DIR"
+  mkdir -p "$LOG_DIR"
+
+  # Generate environment file
+  cat <<EOF > "$CONFIG_DIR/env.conf"
+# Server Setup Environment Configuration
+# Generated on $(date)
+APP_ENV=production
+LOG_PATH=$LOG_DIR/server.log
+SYS_CHECK_INTERVAL=300
+EOF
+
+  # Set permissions
+  chmod 755 "$CONFIG_DIR"
+  chmod 644 "$CONFIG_DIR/env.conf"
+  chmod 755 "$LOG_DIR"
+  
+  echo "Environment configured successfully."
+}
+
+# Set up cron jobs
+setup_cron_jobs() {
+  echo "Setting up cron jobs in $CRON_DIR..."
+  
+  local health_script="$CONFIG_DIR/health-check.sh"
+  
+  if [ "$DRY_RUN" = "true" ]; then
+    echo "[DRY RUN] Would create health check script: $health_script"
+    echo "[DRY RUN] Would create cron job entry in: $CRON_DIR/server-health-check"
+    return 0
+  fi
+
+  # Create the health check helper script
+  cat <<'EOF' > "$health_script"
+#!/bin/bash
+# Server Health Check Script
+# Automatically generated by setup_server.sh
+
+# Load environment configuration if available
+CONFIG_FILE="$(dirname "$0")/env.conf"
+if [ -f "$CONFIG_FILE" ]; then
+  # shellcheck source=/dev/null
+  source "$CONFIG_FILE"
+fi
+
+# Set default log path if not defined in env.conf
+LOG_PATH="${LOG_PATH:-/var/log/server-setup/server.log}"
+LOG_DIR="$(dirname "$LOG_PATH")"
+
+mkdir -p "$LOG_DIR"
+
+{
+  echo "=== Health Check: $(date) ==="
+  echo "Uptime:"
+  if command -v uptime &>/dev/null; then
+    uptime
+  else
+    echo "  (uptime command not available)"
+  fi
+  echo "Memory usage:"
+  if command -v free &>/dev/null; then
+    free -m
+  else
+    echo "  (free command not available)"
+  fi
+  echo "Disk usage:"
+  df -h / 2>/dev/null || df -h .
+  echo "================================="
+  echo ""
+} >> "$LOG_PATH"
+EOF
+
+  chmod +x "$health_script"
+
+  # Write the cron job file (system-wide cron format expects a user)
+  mkdir -p "$CRON_DIR"
+  cat <<EOF > "$CRON_DIR/server-health-check"
+# Server health check cron job
+# Runs every 5 minutes to log system statistics
+*/5 * * * * root /bin/bash "$health_script"
+EOF
+
+  chmod 644 "$CRON_DIR/server-health-check"
+  
+  echo "Cron jobs set up successfully."
+}
+
+# Run tasks
+install_dependencies
+configure_environment
+setup_cron_jobs
+
+echo "=== Server Setup Completed Successfully ==="

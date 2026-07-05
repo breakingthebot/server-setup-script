@@ -1,0 +1,6 @@
+AGENTS.md
+# Ignore Python virtual environments if any are created later
+venv/
+.venv/
+__pycache__/
+*.pyc
