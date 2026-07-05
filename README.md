@@ -18,6 +18,7 @@ A robust, portable, and testable Bash script designed to automate initial server
 - **Active Resource Monitoring Alerts**: The scheduled health check cron script monitors memory and disk levels against custom percentage limits (`--disk-threshold` and `--mem-threshold`), logging `[ALERT]` flags and triggering webhook notifications on threshold breaches.
 - **Systemd Service Generator**: Generates and installs customized Systemd service unit files (`<service-name>.service`), automatically reloading the systemctl daemon, enabling, and starting the background service on supported systems.
 - **Cron Schedule Customization**: Setup supports configuring custom periodic execution intervals via `--cron-schedule` (mapping shortcuts like `hourly`, `daily`, `weekly` to standard cron formatting).
+- **Automated Log Rotation**: Automatically manages log files sizes by writing standard `/etc/logrotate.d/server-setup` rotation policies alongside a self-contained byte-level copytruncate fallback inside the health check script.
 
 ## Usage
 
@@ -52,6 +53,8 @@ Options:
       --service-user USER     User context to run the Systemd service (default: root)
       --systemd-dir DIR       Override Systemd configuration folder (default: /etc/systemd/system)
       --cron-schedule SCHED   Cron schedule for health check (default: */5 * * * *, supports 'hourly', 'daily', 'weekly')
+      --max-log-size KB       Max log size in KB before internal rotation (default: 10240)
+      --logrotate-dir DIR     Override system logrotate configuration directory (default: /etc/logrotate.d)
 ```
 
 ## Local Development & Testing

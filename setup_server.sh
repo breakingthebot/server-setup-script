@@ -26,6 +26,8 @@ SERVICE_CMD=""
 SERVICE_USER="root"
 SYSTEMD_DIR="/etc/systemd/system"
 CRON_SCHEDULE="*/5 * * * *"
+MAX_LOG_SIZE_KB=10240
+LOGROTATE_DIR="/etc/logrotate.d"
 
 # Display usage information
 show_help() {
@@ -52,6 +54,8 @@ Options:
       --service-user USER     User context to run the Systemd service (default: root)
       --systemd-dir DIR       Override Systemd configuration folder (default: /etc/systemd/system)
       --cron-schedule SCHED   Cron schedule for health check (default: */5 * * * *, supports 'hourly', 'daily', 'weekly')
+      --max-log-size KB       Max log size in KB before internal rotation (default: 10240)
+      --logrotate-dir DIR     Override system logrotate configuration directory (default: /etc/logrotate.d)
 EOF
 }
 
@@ -196,6 +200,22 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       CRON_SCHEDULE="$2"
+      shift 2
+      ;;
+    --max-log-size)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --max-log-size requires an argument." >&2
+        exit 1
+      fi
+      MAX_LOG_SIZE_KB="$2"
+      shift 2
+      ;;
+    --logrotate-dir)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --logrotate-dir requires an argument." >&2
+        exit 1
+      fi
+      LOGROTATE_DIR="$2"
       shift 2
       ;;
     *)
@@ -590,6 +610,7 @@ configure_environment() {
       rendered_line="${rendered_line//\{\{ALERT_DISK_THRESHOLD\}\}/${ALERT_DISK_THRESHOLD:-90}}"
       rendered_line="${rendered_line//\{\{ALERT_MEM_THRESHOLD\}\}/${ALERT_MEM_THRESHOLD:-90}}"
       rendered_line="${rendered_line//\{\{CRON_SCHEDULE\}\}/$CRON_SCHEDULE}"
+      rendered_line="${rendered_line//\{\{MAX_LOG_SIZE_KB\}\}/$MAX_LOG_SIZE_KB}"
 
       echo "$rendered_line" >> "$env_file"
     done < "$TEMPLATE_FILE"
@@ -604,6 +625,7 @@ WEBHOOK_URL=$WEBHOOK_URL
 ALERT_DISK_THRESHOLD=$ALERT_DISK_THRESHOLD
 ALERT_MEM_THRESHOLD=$ALERT_MEM_THRESHOLD
 CRON_SCHEDULE=$CRON_SCHEDULE
+MAX_LOG_SIZE_KB=$MAX_LOG_SIZE_KB
 EOF
   fi
 
@@ -726,6 +748,17 @@ if [ -n "$mem_total" ] && [ "$mem_total" -gt 0 ]; then
     trigger_alert "MEM" "$msg"
   fi
 fi
+
+# 3. Log rotation check (copytruncate)
+MAX_LOG_SIZE_KB="${MAX_LOG_SIZE_KB:-10240}"
+if [ -f "$LOG_PATH" ]; then
+  file_bytes=$(wc -c < "$LOG_PATH" 2>/dev/null || echo 0)
+  max_bytes=$((MAX_LOG_SIZE_KB * 1024))
+  if [ "$file_bytes" -gt "$max_bytes" ]; then
+    cp -f "$LOG_PATH" "${LOG_PATH}.1" 2>/dev/null
+    cat /dev/null > "$LOG_PATH" 2>/dev/null
+  fi
+fi
 EOF
 
   chmod +x "$health_script"
@@ -811,13 +844,61 @@ EOF
   fi
 }
 
+# Set up logrotate system configuration policy
+setup_log_rotation() {
+  log_info "Configuring log rotation..."
+  
+  local policy_file="$LOGROTATE_DIR/server-setup"
+  
+  if [ "$DRY_RUN" = "true" ]; then
+    log_info "[DRY RUN] Would create logrotate policy file: $policy_file"
+    return 0
+  fi
+  
+  local can_write=true
+  if [ ! -d "$LOGROTATE_DIR" ]; then
+    if ! mkdir -p "$LOGROTATE_DIR" 2>/dev/null; then
+      can_write=false
+    else
+      record_created_path "$LOGROTATE_DIR"
+    fi
+  elif [ ! -w "$LOGROTATE_DIR" ]; then
+    can_write=false
+  fi
+  
+  if [ "$can_write" = "false" ]; then
+    log_warn "Directory '$LOGROTATE_DIR' is not writable. Skipping system logrotate policy file creation."
+    return 0
+  fi
+  
+  if [ ! -f "$policy_file" ]; then
+    record_created_path "$policy_file"
+  fi
+  
+  cat <<EOF > "$policy_file"
+$LOG_DIR/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 640 root root
+}
+EOF
+
+  chmod 644 "$policy_file"
+  log_info "Logrotate policy file created at $policy_file"
+}
+
 # Run tasks
 install_dependencies
 verify_dependencies
 configure_environment
 setup_cron_jobs
 setup_systemd_service
+setup_log_rotation
 
-send_webhook_notification "SUCCESS" "Server setup completed successfully. Configured environment in $CONFIG_DIR, cron jobs in $CRON_DIR, and Systemd service."
+send_webhook_notification "SUCCESS" "Server setup completed successfully. Configured environment in $CONFIG_DIR, cron jobs in $CRON_DIR, Systemd service, and log rotation."
 
 log_info "=== Server Setup Completed Successfully ==="

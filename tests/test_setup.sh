@@ -563,6 +563,80 @@ test_cron_schedule_invalid_fails() {
   return 0
 }
 
+# Test 20: Custom log rotation configuration options are written correctly
+test_log_rotation_config() {
+  local temp_dir="$SANDBOX/logrot_config_test"
+  mkdir -p "$temp_dir/config" "$temp_dir/cron" "$temp_dir/log" "$temp_dir/logrotate"
+  
+  "$SETUP_SCRIPT" --skip-root-check \
+    --config-dir "$temp_dir/config" \
+    --cron-dir "$temp_dir/cron" \
+    --log-dir "$temp_dir/log" \
+    --logrotate-dir "$temp_dir/logrotate" \
+    --max-log-size 5000 >/dev/null
+    
+  local policy_file="$temp_dir/logrotate/server-setup"
+  if [ ! -f "$policy_file" ]; then
+    echo "Logrotate policy file not generated" >&2
+    return 1
+  fi
+  
+  # Ensure the policy file targets the log directory
+  if ! grep -q "$temp_dir/log/\*\.log" "$policy_file"; then
+    echo "Logrotate policy targets incorrect log directory path" >&2
+    return 1
+  fi
+  
+  local gen_config="$temp_dir/config/env.conf"
+  if ! grep -q "MAX_LOG_SIZE_KB=5000" "$gen_config"; then
+    echo "MAX_LOG_SIZE_KB not persisted in env.conf" >&2
+    return 1
+  fi
+  
+  return 0
+}
+
+# Test 21: Active log rotation copytruncate size threshold check
+test_health_check_log_rotation() {
+  local temp_dir="$SANDBOX/logrot_active_test"
+  mkdir -p "$temp_dir/config" "$temp_dir/cron" "$temp_dir/log"
+  
+  # Configure setup with size limit set to 0 KB (forces rotation)
+  "$SETUP_SCRIPT" --skip-root-check \
+    --config-dir "$temp_dir/config" \
+    --cron-dir "$temp_dir/cron" \
+    --log-dir "$temp_dir/log" \
+    --max-log-size 0 >/dev/null
+    
+  local log_file="$temp_dir/log/server.log"
+  # Write some initial lines to log
+  mkdir -p "$(dirname "$log_file")"
+  echo "pre-existing log entry line 1" > "$log_file"
+  echo "pre-existing log entry line 2" >> "$log_file"
+  
+  # Run the health checker utility which appends health output and triggers copytruncate
+  "$temp_dir/config/health-check.sh" >/dev/null 2>&1
+  
+  # Verify that the pre-existing logs were moved to server.log.1
+  if [ ! -f "${log_file}.1" ]; then
+    echo "Log rotation backup file server.log.1 was not created" >&2
+    return 1
+  fi
+  
+  if ! grep -q "pre-existing log entry line 1" "${log_file}.1"; then
+    echo "Backup log file does not contain rotated contents" >&2
+    return 1
+  fi
+  
+  # Verify that the primary log is now small/truncated (or fresh health check)
+  if grep -q "pre-existing log entry line 1" "$log_file"; then
+    echo "Primary log file was not truncated/cleared after rotation" >&2
+    return 1
+  fi
+  
+  return 0
+}
+
 # Clean up before running
 rm -rf "$SANDBOX"
 mkdir -p "$SANDBOX"
@@ -587,6 +661,8 @@ run_test "Systemd service unit creation" test_systemd_service_creation
 run_test "Systemd service empty command fails" test_systemd_empty_cmd_fails
 run_test "Custom cron schedule parameter" test_cron_schedule_custom
 run_test "Invalid cron schedules fail validation" test_cron_schedule_invalid_fails
+run_test "Log rotation configuration" test_log_rotation_config
+run_test "Health check log rotation execution" test_health_check_log_rotation
 
 # Clean up sandbox after tests pass
 rm -rf "$SANDBOX"

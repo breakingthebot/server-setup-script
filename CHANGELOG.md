@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-07-05
+
+### Added
+- Added `--max-log-size` and `--logrotate-dir` options to support configurable log size limitations and rotation directories.
+- Implemented `setup_log_rotation` creating standard system logrotate configurations with non-writable directory fallback safety.
+- Implemented automated copytruncate byte-level file rotation inside generated `health-check.sh` scripts.
+- Added automated Test 20 (`test_log_rotation_config`) and Test 21 (`test_health_check_log_rotation`).
+
 ## [0.9.0] - 2026-07-05
 
 ### Added
