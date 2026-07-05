@@ -27,6 +27,11 @@ This log documents key architecture decisions, testing approaches, and design co
 - **Asynchronous Execution Guard**: Dispatches network requests via background/timeout tasks (using `curl --max-time 10`) to prevent slow or unreachable networks from hanging the script.
 - **Dual Trigger Hooks**: Integrates status notification firing at setup success (end of script) and setup failure (inside the EXIT trap after rollback), ensuring teams receive real-time build states.
 
+### 6. Logging Levels & Diagnostic Archiving
+- **Standardized Logging Utilities**: Introduced `log_debug`, `log_info`, `log_warn`, and `log_error` utility print commands. Output is automatically filtered based on the numerical priority mapping of the `--log-level` parameter.
+- **Early-State Diagnostics Capture**: On execution failure, the script generates a diagnostics report (system-info containing timestamp, hostname, OS uname details, disk utilization, and free memory) and copies the config/log folders *before* triggering the rollback sequence.
+- **Diagnostics Tarball Compilation**: Compresses diagnostic files into a `setup-diagnostics-<timestamp>.tar.gz` archive, saving it to the parent directory for troubleshooting reference while maintaining a clean final system state.
+
 ## Iterations Log
 
 ### Iteration 1 (v0.1.0) - Base Setup
@@ -51,3 +56,9 @@ This log documents key architecture decisions, testing approaches, and design co
 - Added `--webhook-url` (`-w`) option to send status updates.
 - Integrated `send_webhook_notification` helper triggered on both script success and error/rollback events.
 - Added Test 11 (`test_webhook_dry_run`) validating dry-run notification output and payload metrics.
+
+### Iteration 6 (v0.6.0) - Logging Levels & Diagnostic Archiving
+- Added support for `--log-level` (`-l`) command parameter.
+- Implemented logging utility helper functions and output level filtering.
+- Implemented `export_diagnostics` packaging up configurations, setup logs, and system details into a compressed tarball on script failure.
+- Added Test 12 (`test_logging_filtering`) and Test 13 (`test_diagnostics_archive_on_failure`).

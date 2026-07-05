@@ -18,6 +18,7 @@ DEPENDENCIES_FILE=""
 TEMPLATE_FILE=""
 TEMPLATE_VARS=""
 WEBHOOK_URL=""
+LOG_LEVEL="INFO"
 
 # Display usage information
 show_help() {
@@ -36,6 +37,7 @@ Options:
   -t, --template FILE         Path to configuration template file
       --template-vars STR     Space-separated KEY=VAL overrides for template
   -w, --webhook-url URL       Webhook URL for status notifications
+  -l, --log-level LEVEL       Log level: DEBUG, INFO, WARN, ERROR (default: INFO)
 EOF
 }
 
@@ -118,6 +120,14 @@ while [[ $# -gt 0 ]]; do
       WEBHOOK_URL="$2"
       shift 2
       ;;
+    -l|--log-level)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --log-level requires an argument." >&2
+        exit 1
+      fi
+      LOG_LEVEL="$2"
+      shift 2
+      ;;
     *)
       echo "Error: Unknown option $1" >&2
       show_help >&2
@@ -125,6 +135,82 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Initialize log level number
+LOG_LEVEL_NUM=1
+set_log_level() {
+  local lvl
+  lvl=$(echo "${LOG_LEVEL:-INFO}" | tr '[:lower:]' '[:upper:]')
+  case "$lvl" in
+    DEBUG) LOG_LEVEL_NUM=0 ;;
+    INFO)  LOG_LEVEL_NUM=1 ;;
+    WARN|WARNING)  LOG_LEVEL_NUM=2 ;;
+    ERROR) LOG_LEVEL_NUM=3 ;;
+    *)
+      echo "Warning: Unknown log level '$LOG_LEVEL'. Defaulting to INFO." >&2
+      LOG_LEVEL_NUM=1
+      ;;
+  esac
+}
+set_log_level
+
+# Logging utility functions
+log_debug() { [ "$LOG_LEVEL_NUM" -le 0 ] && echo "[DEBUG] $(date '+%Y-%m-%d %H:%M:%S') - $*"; }
+log_info() {  [ "$LOG_LEVEL_NUM" -le 1 ] && echo "[INFO] $(date '+%Y-%m-%d %H:%M:%S') - $*"; }
+log_warn() {  [ "$LOG_LEVEL_NUM" -le 2 ] && echo "[WARN] $(date '+%Y-%m-%d %H:%M:%S') - $*" >&2; }
+log_error() { [ "$LOG_LEVEL_NUM" -le 3 ] && echo "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') - $*" >&2; }
+
+export_diagnostics() {
+  local exit_code="$1"
+  local timestamp
+  timestamp=$(date +%Y%m%d%H%M%S)
+  local archive_name="setup-diagnostics-${timestamp}.tar.gz"
+  
+  # Put archive in target folder parent or current directory
+  local archive_path="./$archive_name"
+  local parent_dir
+  parent_dir=$(dirname "$CONFIG_DIR" 2>/dev/null || echo ".")
+  if [ -d "$parent_dir" ] && [ -w "$parent_dir" ] && [ "$parent_dir" != "/" ]; then
+    archive_path="$parent_dir/$archive_name"
+  fi
+  
+  log_info "Exporting failure diagnostics to: $archive_path"
+  
+  local diag_dir
+  diag_dir=$(mktemp -d -t setup-diag-XXXXXX 2>/dev/null || mktemp -d ./setup-diag-XXXXXX)
+  
+  {
+    echo "=== Setup Fail-Safe Diagnostic Report ==="
+    echo "Timestamp: $(date)"
+    echo "Exit Code: $exit_code"
+    echo "Hostname: $(hostname 2>/dev/null || echo "unknown")"
+    echo "OS details: $(uname -a 2>/dev/null || echo "unknown")"
+    echo "EUID: ${EUID:-$(id -u)}"
+    echo "Disk usage:"
+    df -h 2>/dev/null || df -h .
+    echo "Memory details:"
+    free -m 2>/dev/null || echo "free not available"
+  } > "$diag_dir/system-info.txt"
+  
+  if [ -d "$CONFIG_DIR" ]; then
+    cp -rp "$CONFIG_DIR" "$diag_dir/config" 2>/dev/null || true
+  fi
+  if [ -d "$LOG_DIR" ]; then
+    cp -rp "$LOG_DIR" "$diag_dir/log" 2>/dev/null || true
+  fi
+  
+  # Compress it
+  if tar -czf "$archive_path" -C "$(dirname "$diag_dir")" "$(basename "$diag_dir")" &>/dev/null; then
+    log_info "Diagnostics packaged successfully (compressed)."
+  elif tar -cf "${archive_path%.gz}" -C "$(dirname "$diag_dir")" "$(basename "$diag_dir")" &>/dev/null; then
+    log_info "Diagnostics packaged successfully (uncompressed tar)."
+    archive_path="${archive_path%.gz}"
+  else
+    log_warn "Failed to package diagnostics."
+  fi
+  
+  rm -rf "$diag_dir"
+}
 
 # Read dependencies file if provided
 if [ -n "$DEPENDENCIES_FILE" ]; then
@@ -211,23 +297,24 @@ EOF
 cleanup_on_error() {
   local exit_code=$?
   if [ "$exit_code" -ne 0 ] && [ "$DRY_RUN" = "false" ]; then
-    echo "Error occurred (exit code: $exit_code). Initiating rollback/cleanup..." >&2
+    log_error "Error occurred (exit code: $exit_code). Initiating diagnostics and cleanup..."
+    export_diagnostics "$exit_code"
     rollback_created_paths
-    send_webhook_notification "FAILURE" "Server setup failed with exit code $exit_code. Configuration changes rolled back."
+    send_webhook_notification "FAILURE" "Server setup failed with exit code $exit_code. Diagnostics exported. Configuration changes rolled back."
   fi
 }
 
 trap cleanup_on_error EXIT
 
-echo "=== Server Setup Started ==="
+log_info "=== Server Setup Started ==="
 if [ "$DRY_RUN" = "true" ]; then
-  echo "--- RUNNING IN DRY-RUN MODE ---"
+  log_info "--- RUNNING IN DRY-RUN MODE ---"
 fi
 
 # Check for root privileges
 if [ "$SKIP_ROOT_CHECK" = "false" ] && [ "$DRY_RUN" = "false" ]; then
   if [ "${EUID:-$(id -u)}" -ne 0 ]; then
-    echo "Error: This script must be run as root (or with sudo)." >&2
+    log_error "This script must be run as root (or with sudo)."
     exit 1
   fi
 fi
@@ -251,10 +338,10 @@ detect_package_manager() {
 install_dependencies() {
   local pm
   pm=$(detect_package_manager)
-  echo "Installing dependencies: $DEPENDENCIES"
+  log_info "Installing dependencies: $DEPENDENCIES"
   
   if [ "$DRY_RUN" = "true" ]; then
-    echo "[DRY RUN] Would use package manager '$pm' to install: $DEPENDENCIES"
+    log_info "[DRY RUN] Would use package manager '$pm' to install: $DEPENDENCIES"
     return 0
   fi
 
@@ -281,7 +368,7 @@ install_dependencies() {
       done
       ;;
     *)
-      echo "Warning: Unknown or unsupported package manager. Skipping dependency installation." >&2
+      log_warn "Unknown or unsupported package manager. Skipping dependency installation."
       ;;
   esac
 }
@@ -290,13 +377,13 @@ install_dependencies() {
 verify_dependencies() {
   local pm
   pm=$(detect_package_manager)
-  echo "Verifying installed dependencies..."
+  log_info "Verifying installed dependencies..."
 
   local failed_deps=()
 
   for dep in $DEPENDENCIES; do
     if [ "$DRY_RUN" = "true" ]; then
-      echo "[DRY RUN] Would verify package installation for: $dep"
+      log_info "[DRY RUN] Would verify package installation for: $dep"
       continue
     fi
 
@@ -328,18 +415,18 @@ verify_dependencies() {
     fi
 
     if [ "$is_installed" = "true" ]; then
-      echo "  Verification PASSED: $dep is installed."
+      log_info "  Verification PASSED: $dep is installed."
     else
-      echo "  Verification FAILED: $dep is NOT installed/accessible." >&2
+      log_warn "  Verification FAILED: $dep is NOT installed/accessible."
       failed_deps+=("$dep")
     fi
   done
 
   if [ ${#failed_deps[@]} -ne 0 ] && [ "$DRY_RUN" = "false" ]; then
     if [ "$pm" = "unknown" ]; then
-      echo "Warning: Verification failed for [${failed_deps[*]}], but skipping enforcement because no package manager was detected." >&2
+      log_warn "Verification failed for [${failed_deps[*]}], but skipping enforcement because no package manager was detected."
     else
-      echo "Error: The following dependencies failed verification: ${failed_deps[*]}" >&2
+      log_error "The following dependencies failed verification: ${failed_deps[*]}"
       exit 1
     fi
   fi
@@ -347,16 +434,16 @@ verify_dependencies() {
 
 # Configure environment
 configure_environment() {
-  echo "Configuring environment in $CONFIG_DIR..."
+  log_info "Configuring environment in $CONFIG_DIR..."
   
   if [ "$DRY_RUN" = "true" ]; then
-    echo "[DRY RUN] Would create directory: $CONFIG_DIR"
+    log_info "[DRY RUN] Would create directory: $CONFIG_DIR"
     if [ -n "$TEMPLATE_FILE" ]; then
-      echo "[DRY RUN] Would render template file '$TEMPLATE_FILE' to: $CONFIG_DIR/env.conf"
+      log_info "[DRY RUN] Would render template file '$TEMPLATE_FILE' to: $CONFIG_DIR/env.conf"
     else
-      echo "[DRY RUN] Would create environment file: $CONFIG_DIR/env.conf"
+      log_info "[DRY RUN] Would create environment file: $CONFIG_DIR/env.conf"
     fi
-    echo "[DRY RUN] Would create log directory: $LOG_DIR"
+    log_info "[DRY RUN] Would create log directory: $LOG_DIR"
     return 0
   fi
 
@@ -424,18 +511,18 @@ EOF
   chmod 644 "$env_file"
   chmod 755 "$LOG_DIR"
   
-  echo "Environment configured successfully."
+  log_info "Environment configured successfully."
 }
 
 # Set up cron jobs
 setup_cron_jobs() {
-  echo "Setting up cron jobs in $CRON_DIR..."
+  log_info "Setting up cron jobs in $CRON_DIR..."
   
   local health_script="$CONFIG_DIR/health-check.sh"
   
   if [ "$DRY_RUN" = "true" ]; then
-    echo "[DRY RUN] Would create health check script: $health_script"
-    echo "[DRY RUN] Would create cron job entry in: $CRON_DIR/server-health-check"
+    log_info "[DRY RUN] Would create health check script: $health_script"
+    log_info "[DRY RUN] Would create cron job entry in: $CRON_DIR/server-health-check"
     return 0
   fi
 
@@ -515,4 +602,4 @@ setup_cron_jobs
 
 send_webhook_notification "SUCCESS" "Server setup completed successfully. Configured environment in $CONFIG_DIR and cron jobs in $CRON_DIR."
 
-echo "=== Server Setup Completed Successfully ==="
+log_info "=== Server Setup Completed Successfully ==="

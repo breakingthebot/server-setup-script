@@ -314,6 +314,67 @@ test_webhook_dry_run() {
   return 0
 }
 
+# Test 12: Logging level filtering
+test_logging_filtering() {
+  local output_warn
+  # If log-level is set to WARN, INFO logs (like setup start) should NOT appear
+  output_warn=$("$SETUP_SCRIPT" --dry-run --skip-root-check --log-level WARN)
+  
+  if echo "$output_warn" | grep -q "=== Server Setup Started ==="; then
+    echo "Expected INFO logs to be filtered out at WARN level, but they were displayed." >&2
+    return 1
+  fi
+  
+  local output_debug
+  output_debug=$("$SETUP_SCRIPT" --dry-run --skip-root-check --log-level DEBUG)
+  
+  # INFO logs should appear at DEBUG level
+  if ! echo "$output_debug" | grep -q "=== Server Setup Started ==="; then
+    echo "Expected INFO logs to be displayed at DEBUG level, but they were missing." >&2
+    return 1
+  fi
+  
+  return 0
+}
+
+# Test 13: Diagnostics archive creation on failure
+test_diagnostics_archive_on_failure() {
+  local diag_sandbox="$SANDBOX/diag_test"
+  rm -rf "$diag_sandbox"
+  mkdir -p "$diag_sandbox"
+  
+  local mock_config="$diag_sandbox/config"
+  local mock_log="$diag_sandbox/log"
+  # Block cron directory creation by creating a file
+  local mock_cron="$diag_sandbox/cron_blocked_file"
+  touch "$mock_cron"
+
+  # Run script which should fail
+  if "$SETUP_SCRIPT" --skip-root-check \
+    --config-dir "$mock_config" \
+    --cron-dir "$mock_cron" \
+    --log-dir "$mock_log" &>/dev/null; then
+    echo "Expected script to fail, but it succeeded." >&2
+    return 1
+  fi
+
+  # Verify that a diagnostics archive tarball was created in $diag_sandbox (parent of mock_config)
+  local archive
+  archive=$(find "$diag_sandbox" -name "setup-diagnostics-*.tar*" | head -n 1)
+  if [ -z "$archive" ]; then
+    echo "Diagnostics archive was not generated on failure" >&2
+    return 1
+  fi
+
+  # Check inside the tarball to ensure it contains system-info.txt
+  if ! tar -tf "$archive" | grep -q "system-info.txt"; then
+    echo "Diagnostics archive does not contain system-info.txt" >&2
+    return 1
+  fi
+
+  return 0
+}
+
 # Clean up before running
 rm -rf "$SANDBOX"
 mkdir -p "$SANDBOX"
@@ -330,6 +391,8 @@ run_test "Automatic rollback on failure" test_rollback_on_failure
 run_test "Template configuration rendering" test_template_rendering
 run_test "Missing template file fails" test_missing_template_file
 run_test "Webhook dry-run notification" test_webhook_dry_run
+run_test "Log level console output filtering" test_logging_filtering
+run_test "Diagnostics archive creation on failure" test_diagnostics_archive_on_failure
 
 # Clean up sandbox after tests pass
 rm -rf "$SANDBOX"

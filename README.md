@@ -13,6 +13,8 @@ A robust, portable, and testable Bash script designed to automate initial server
 - **Custom Directories**: Supports custom paths for config, cron, and log directories.
 - **Automatic Fail-Safe Rollback**: Tracks all files and directories created during the script's run. If setup encounters any error and exits with a non-zero code, it automatically deletes created files and removes created directories (if empty) to leave the server in a clean state.
 - **Webhook Status Notifications**: Dispatches real-time setup outcomes (`SUCCESS` or `FAILURE`) along with run duration and server hostname to a target Slack, Discord, or generic webhook endpoint.
+- **Logging Level Filtering**: Filters console output using logging levels (`DEBUG`, `INFO`, `WARN`, `ERROR`), printing timestamps and log tags for standard operations.
+- **Diagnostic Fail-Safe Archiving**: On failure, the script gathers system configurations, installation logs, and system resource specifications (EUID, disk usage, memory logs) into a compressed tarball before rollback occurs, facilitating easy offline analysis.
 
 ## Usage
 
@@ -39,6 +41,7 @@ Options:
   -t, --template FILE         Path to configuration template file
       --template-vars STR     Space-separated KEY=VAL overrides for template
   -w, --webhook-url URL       Webhook URL for status notifications
+  -l, --log-level LEVEL       Log level: DEBUG, INFO, WARN, ERROR (default: INFO)
 ```
 
 ## Local Development & Testing

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-05
+
+### Added
+- Added `--log-level` (`-l`) option to specify log filtering levels (`DEBUG`, `INFO`, `WARN`, `ERROR`).
+- Added log utility helper functions with timestamp formatting.
+- Added `export_diagnostics` function triggered on script execution failure to package system specifications, configuration directories, and installation logs into a compressed diagnostic archive.
+- Added Test 12 (`test_logging_filtering`) and Test 13 (`test_diagnostics_archive_on_failure`) to `tests/test_setup.sh`.
+
 ## [0.5.0] - 2026-07-05
 
 ### Added
