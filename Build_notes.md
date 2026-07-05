@@ -22,6 +22,11 @@ This log documents key architecture decisions, testing approaches, and design co
 - **Variable Override Chains**: Created a two-tiered configuration model: users can pass direct string overrides (via `--template-vars`) which take highest priority, with standard setup script parameters (like `APP_ENV`, `LOG_PATH`) serving as automatic fallback defaults.
 - **Early Configuration Validation**: Enforces template file existence checking at option-parsing time, protecting against downstream configuration compilation failures before any setup operations begin.
 
+### 5. Webhook Status Notifications
+- **JSON Payload Assembly**: Compiles key metrics (setup status: `SUCCESS`/`FAILURE`, hostname, run duration, and detailed messages) into a structured JSON string.
+- **Asynchronous Execution Guard**: Dispatches network requests via background/timeout tasks (using `curl --max-time 10`) to prevent slow or unreachable networks from hanging the script.
+- **Dual Trigger Hooks**: Integrates status notification firing at setup success (end of script) and setup failure (inside the EXIT trap after rollback), ensuring teams receive real-time build states.
+
 ## Iterations Log
 
 ### Iteration 1 (v0.1.0) - Base Setup
@@ -41,3 +46,8 @@ This log documents key architecture decisions, testing approaches, and design co
 - Added support for `--template` (`-t`) and `--template-vars` parameters.
 - Implemented pure Bash template compiler with override and default fallback chains.
 - Added Test 9 (`test_template_rendering`) and Test 10 (`test_missing_template_file`).
+
+### Iteration 5 (v0.5.0) - Webhook Status Notifications
+- Added `--webhook-url` (`-w`) option to send status updates.
+- Integrated `send_webhook_notification` helper triggered on both script success and error/rollback events.
+- Added Test 11 (`test_webhook_dry_run`) validating dry-run notification output and payload metrics.

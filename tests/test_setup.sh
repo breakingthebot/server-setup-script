@@ -290,6 +290,30 @@ test_missing_template_file() {
   fi
 }
 
+# Test 11: Webhook notifications in dry-run mode
+test_webhook_dry_run() {
+  local output
+  output=$("$SETUP_SCRIPT" --dry-run --skip-root-check --webhook-url "http://example.com/webhook-test")
+  
+  if ! echo "$output" | grep -q "Would send POST request to http://example.com/webhook-test"; then
+    echo "Dry-run webhook message missing" >&2
+    return 1
+  fi
+  if ! echo "$output" | grep -q "Status"; then
+    echo "Dry-run webhook status key missing" >&2
+    return 1
+  fi
+  if ! echo "$output" | grep -q "Host"; then
+    echo "Dry-run webhook host key missing" >&2
+    return 1
+  fi
+  if ! echo "$output" | grep -q "Duration"; then
+    echo "Dry-run webhook duration key missing" >&2
+    return 1
+  fi
+  return 0
+}
+
 # Clean up before running
 rm -rf "$SANDBOX"
 mkdir -p "$SANDBOX"
@@ -305,6 +329,7 @@ run_test "Missing dependencies file fails" test_missing_dependencies_file
 run_test "Automatic rollback on failure" test_rollback_on_failure
 run_test "Template configuration rendering" test_template_rendering
 run_test "Missing template file fails" test_missing_template_file
+run_test "Webhook dry-run notification" test_webhook_dry_run
 
 # Clean up sandbox after tests pass
 rm -rf "$SANDBOX"

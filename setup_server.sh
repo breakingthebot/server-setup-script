@@ -4,6 +4,9 @@
 
 set -euo pipefail
 
+# Start time tracking
+START_TIME=$(date +%s)
+
 # Default configuration values
 DRY_RUN=false
 SKIP_ROOT_CHECK=false
@@ -14,6 +17,7 @@ DEPENDENCIES="curl git htop cron"
 DEPENDENCIES_FILE=""
 TEMPLATE_FILE=""
 TEMPLATE_VARS=""
+WEBHOOK_URL=""
 
 # Display usage information
 show_help() {
@@ -31,6 +35,7 @@ Options:
   -f, --dependencies-file FILE File containing list of packages to install (one per line)
   -t, --template FILE         Path to configuration template file
       --template-vars STR     Space-separated KEY=VAL overrides for template
+  -w, --webhook-url URL       Webhook URL for status notifications
 EOF
 }
 
@@ -105,6 +110,14 @@ while [[ $# -gt 0 ]]; do
       TEMPLATE_VARS="$2"
       shift 2
       ;;
+    -w|--webhook-url)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --webhook-url requires an argument." >&2
+        exit 1
+      fi
+      WEBHOOK_URL="$2"
+      shift 2
+      ;;
     *)
       echo "Error: Unknown option $1" >&2
       show_help >&2
@@ -158,11 +171,49 @@ rollback_created_paths() {
   done
 }
 
+send_webhook_notification() {
+  local status="$1"
+  local message="$2"
+  
+  if [ -z "${WEBHOOK_URL:-}" ]; then
+    return 0
+  fi
+  
+  local end_time
+  end_time=$(date +%s)
+  local duration=$((end_time - START_TIME))
+  
+  local host
+  host=$(hostname 2>/dev/null || echo "unknown-host")
+  
+  local payload
+  payload=$(cat <<EOF
+{
+  "text": "=== Server Setup Notification ===\\n**Status**: $status\\n**Host**: $host\\n**Duration**: ${duration}s\\n**Details**: $message"
+}
+EOF
+)
+
+  if [ "$DRY_RUN" = "true" ]; then
+    echo "[DRY RUN] Would send POST request to $WEBHOOK_URL with payload:"
+    echo "$payload"
+    return 0
+  fi
+  
+  echo "Sending status notification to Webhook..."
+  if command -v curl &>/dev/null; then
+    curl -s -X POST -H "Content-Type: application/json" -d "$payload" --max-time 10 "$WEBHOOK_URL" &>/dev/null || echo "Warning: Failed to send webhook notification." >&2
+  else
+    echo "Warning: curl not found. Cannot send webhook notification." >&2
+  fi
+}
+
 cleanup_on_error() {
   local exit_code=$?
   if [ "$exit_code" -ne 0 ] && [ "$DRY_RUN" = "false" ]; then
     echo "Error occurred (exit code: $exit_code). Initiating rollback/cleanup..." >&2
     rollback_created_paths
+    send_webhook_notification "FAILURE" "Server setup failed with exit code $exit_code. Configuration changes rolled back."
   fi
 }
 
@@ -461,5 +512,7 @@ install_dependencies
 verify_dependencies
 configure_environment
 setup_cron_jobs
+
+send_webhook_notification "SUCCESS" "Server setup completed successfully. Configured environment in $CONFIG_DIR and cron jobs in $CRON_DIR."
 
 echo "=== Server Setup Completed Successfully ==="

@@ -12,6 +12,7 @@ A robust, portable, and testable Bash script designed to automate initial server
 - **Test Mode & Safety**: Supports a `--dry-run` mode to inspect actions before applying them, and `--skip-root-check` to support running/testing in non-privileged environments.
 - **Custom Directories**: Supports custom paths for config, cron, and log directories.
 - **Automatic Fail-Safe Rollback**: Tracks all files and directories created during the script's run. If setup encounters any error and exits with a non-zero code, it automatically deletes created files and removes created directories (if empty) to leave the server in a clean state.
+- **Webhook Status Notifications**: Dispatches real-time setup outcomes (`SUCCESS` or `FAILURE`) along with run duration and server hostname to a target Slack, Discord, or generic webhook endpoint.
 
 ## Usage
 
@@ -37,6 +38,7 @@ Options:
   -f, --dependencies-file FILE File containing list of packages to install (one per line)
   -t, --template FILE         Path to configuration template file
       --template-vars STR     Space-separated KEY=VAL overrides for template
+  -w, --webhook-url URL       Webhook URL for status notifications
 ```
 
 ## Local Development & Testing
