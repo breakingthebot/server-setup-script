@@ -10,6 +10,7 @@ A robust, portable, and testable Bash script designed to automate initial server
 - **Cron Jobs**: Configures a system-wide cron job (`server-health-check`) that triggers a system health check helper script periodically.
 - **Test Mode & Safety**: Supports a `--dry-run` mode to inspect actions before applying them, and `--skip-root-check` to support running/testing in non-privileged environments.
 - **Custom Directories**: Supports custom paths for config, cron, and log directories.
+- **Automatic Fail-Safe Rollback**: Tracks all files and directories created during the script's run. If setup encounters any error and exits with a non-zero code, it automatically deletes created files and removes created directories (if empty) to leave the server in a clean state.
 
 ## Usage
 

@@ -104,6 +104,42 @@ if [ -n "$DEPENDENCIES_FILE" ]; then
   DEPENDENCIES=$(echo "$DEPENDENCIES" | xargs)
 fi
 
+# Keep track of directories and files created by this run for rollback
+CREATED_PATHS=()
+
+record_created_path() {
+  local path="$1"
+  CREATED_PATHS=("$path" "${CREATED_PATHS[@]}")
+}
+
+rollback_created_paths() {
+  echo "Rolling back configuration changes..." >&2
+  for path in "${CREATED_PATHS[@]}"; do
+    if [ -f "$path" ]; then
+      echo "  Removing created file: $path" >&2
+      rm -f "$path"
+    elif [ -d "$path" ]; then
+      # Only remove directory if it is empty to avoid deleting user files
+      if [ -z "$(ls -A "$path" 2>/dev/null)" ]; then
+        echo "  Removing empty directory: $path" >&2
+        rmdir "$path"
+      else
+        echo "  Skipping non-empty directory: $path" >&2
+      fi
+    fi
+  done
+}
+
+cleanup_on_error() {
+  local exit_code=$?
+  if [ "$exit_code" -ne 0 ] && [ "$DRY_RUN" = "false" ]; then
+    echo "Error occurred (exit code: $exit_code). Initiating rollback/cleanup..." >&2
+    rollback_created_paths
+  fi
+}
+
+trap cleanup_on_error EXIT
+
 echo "=== Server Setup Started ==="
 if [ "$DRY_RUN" = "true" ]; then
   echo "--- RUNNING IN DRY-RUN MODE ---"
@@ -242,11 +278,22 @@ configure_environment() {
   fi
 
   # Create directories
-  mkdir -p "$CONFIG_DIR"
-  mkdir -p "$LOG_DIR"
+  if [ ! -d "$CONFIG_DIR" ]; then
+    mkdir -p "$CONFIG_DIR"
+    record_created_path "$CONFIG_DIR"
+  fi
+  if [ ! -d "$LOG_DIR" ]; then
+    mkdir -p "$LOG_DIR"
+    record_created_path "$LOG_DIR"
+  fi
 
   # Generate environment file
-  cat <<EOF > "$CONFIG_DIR/env.conf"
+  local env_file="$CONFIG_DIR/env.conf"
+  if [ ! -f "$env_file" ]; then
+    record_created_path "$env_file"
+  fi
+
+  cat <<EOF > "$env_file"
 # Server Setup Environment Configuration
 # Generated on $(date)
 APP_ENV=production
@@ -256,7 +303,7 @@ EOF
 
   # Set permissions
   chmod 755 "$CONFIG_DIR"
-  chmod 644 "$CONFIG_DIR/env.conf"
+  chmod 644 "$env_file"
   chmod 755 "$LOG_DIR"
   
   echo "Environment configured successfully."
@@ -275,6 +322,10 @@ setup_cron_jobs() {
   fi
 
   # Create the health check helper script
+  if [ ! -f "$health_script" ]; then
+    record_created_path "$health_script"
+  fi
+
   cat <<'EOF' > "$health_script"
 #!/bin/bash
 # Server Health Check Script
@@ -317,14 +368,23 @@ EOF
   chmod +x "$health_script"
 
   # Write the cron job file (system-wide cron format expects a user)
-  mkdir -p "$CRON_DIR"
-  cat <<EOF > "$CRON_DIR/server-health-check"
+  if [ ! -d "$CRON_DIR" ]; then
+    mkdir -p "$CRON_DIR"
+    record_created_path "$CRON_DIR"
+  fi
+
+  local cron_file="$CRON_DIR/server-health-check"
+  if [ ! -f "$cron_file" ]; then
+    record_created_path "$cron_file"
+  fi
+
+  cat <<EOF > "$cron_file"
 # Server health check cron job
 # Runs every 5 minutes to log system statistics
 */5 * * * * root /bin/bash "$health_script"
 EOF
 
-  chmod 644 "$CRON_DIR/server-health-check"
+  chmod 644 "$cron_file"
   
   echo "Cron jobs set up successfully."
 }

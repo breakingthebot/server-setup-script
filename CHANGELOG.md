@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-05
+
+### Added
+- Implemented automatic rollback trap mechanism triggered on non-zero exit codes to clean up configuration and log folders on failure.
+- Added file/directory tracking registry to safely remove files and directories without altering pre-existing files.
+- Added `test_rollback_on_failure` test case verifying rollback execution and pre-existing file safety.
+
 ## [0.2.0] - 2026-07-05
 
 ### Added

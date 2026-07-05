@@ -177,6 +177,47 @@ test_missing_dependencies_file() {
   fi
 }
 
+# Test 8: Automatic rollback cleans up created files on failure
+test_rollback_on_failure() {
+  local rollback_sandbox="$SANDBOX/rollback_test"
+  rm -rf "$rollback_sandbox"
+  mkdir -p "$rollback_sandbox"
+  
+  local mock_config="$rollback_sandbox/config"
+  local mock_log="$rollback_sandbox/log"
+  # Force failure in setup_cron_jobs by making mock_cron a file rather than a directory
+  local mock_cron="$rollback_sandbox/cron_blocked_file"
+  touch "$mock_cron"
+
+  # Run script which should configure config/log, then fail on cron setup and rollback
+  if "$SETUP_SCRIPT" --skip-root-check \
+    --config-dir "$mock_config" \
+    --cron-dir "$mock_cron" \
+    --log-dir "$mock_log" &>/dev/null; then
+    echo "Expected script to fail due to blocked cron directory, but it succeeded." >&2
+    return 1
+  fi
+
+  # After failure, verify rollback cleaned up config and log directories we created
+  if [ -d "$mock_config" ]; then
+    echo "Rollback failed: $mock_config was not deleted" >&2
+    return 1
+  fi
+  
+  if [ -d "$mock_log" ]; then
+    echo "Rollback failed: $mock_log was not deleted" >&2
+    return 1
+  fi
+
+  # Verify the blocking file still exists (we didn't delete things we didn't create)
+  if [ ! -f "$mock_cron" ]; then
+    echo "Error: The pre-existing file $mock_cron was deleted!" >&2
+    return 1
+  fi
+
+  return 0
+}
+
 # Clean up before running
 rm -rf "$SANDBOX"
 mkdir -p "$SANDBOX"
@@ -189,6 +230,7 @@ run_test "Successful setup" test_successful_setup
 run_test "Health check script execution" test_health_check_execution
 run_test "Custom dependencies file" test_custom_dependencies_file
 run_test "Missing dependencies file fails" test_missing_dependencies_file
+run_test "Automatic rollback on failure" test_rollback_on_failure
 
 # Clean up sandbox after tests pass
 rm -rf "$SANDBOX"
