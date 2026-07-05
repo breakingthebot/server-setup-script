@@ -25,6 +25,7 @@ SERVICE_NAME=""
 SERVICE_CMD=""
 SERVICE_USER="root"
 SYSTEMD_DIR="/etc/systemd/system"
+CRON_SCHEDULE="*/5 * * * *"
 
 # Display usage information
 show_help() {
@@ -50,6 +51,7 @@ Options:
       --service-cmd CMD       Command the Systemd service should execute
       --service-user USER     User context to run the Systemd service (default: root)
       --systemd-dir DIR       Override Systemd configuration folder (default: /etc/systemd/system)
+      --cron-schedule SCHED   Cron schedule for health check (default: */5 * * * *, supports 'hourly', 'daily', 'weekly')
 EOF
 }
 
@@ -188,6 +190,14 @@ while [[ $# -gt 0 ]]; do
       SYSTEMD_DIR="$2"
       shift 2
       ;;
+    --cron-schedule)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --cron-schedule requires an argument." >&2
+        exit 1
+      fi
+      CRON_SCHEDULE="$2"
+      shift 2
+      ;;
     *)
       echo "Error: Unknown option $1" >&2
       show_help >&2
@@ -213,6 +223,29 @@ set_log_level() {
   esac
 }
 set_log_level
+
+# Validate cron schedule
+validate_cron_schedule() {
+  local sched
+  sched=$(echo "$CRON_SCHEDULE" | xargs)
+  
+  case "$sched" in
+    hourly) CRON_SCHEDULE="0 * * * *" ;;
+    daily)  CRON_SCHEDULE="0 0 * * *" ;;
+    weekly) CRON_SCHEDULE="0 0 * * 0" ;;
+    *)
+      # Count whitespace-separated fields
+      local field_count
+      field_count=$(echo "$sched" | wc -w)
+      if [ "$field_count" -ne 5 ]; then
+        echo "Error: Invalid cron schedule '$CRON_SCHEDULE'. Must be 'hourly', 'daily', 'weekly', or a valid 5-field cron expression." >&2
+        exit 1
+      fi
+      CRON_SCHEDULE="$sched"
+      ;;
+  esac
+}
+validate_cron_schedule
 
 # Logging utility functions
 log_debug() { [ "$LOG_LEVEL_NUM" -le 0 ] && echo "[DEBUG] $(date '+%Y-%m-%d %H:%M:%S') - $*"; }
@@ -556,6 +589,7 @@ configure_environment() {
       rendered_line="${rendered_line//\{\{WEBHOOK_URL\}\}/${WEBHOOK_URL:-}}"
       rendered_line="${rendered_line//\{\{ALERT_DISK_THRESHOLD\}\}/${ALERT_DISK_THRESHOLD:-90}}"
       rendered_line="${rendered_line//\{\{ALERT_MEM_THRESHOLD\}\}/${ALERT_MEM_THRESHOLD:-90}}"
+      rendered_line="${rendered_line//\{\{CRON_SCHEDULE\}\}/$CRON_SCHEDULE}"
 
       echo "$rendered_line" >> "$env_file"
     done < "$TEMPLATE_FILE"
@@ -569,6 +603,7 @@ SYS_CHECK_INTERVAL=300
 WEBHOOK_URL=$WEBHOOK_URL
 ALERT_DISK_THRESHOLD=$ALERT_DISK_THRESHOLD
 ALERT_MEM_THRESHOLD=$ALERT_MEM_THRESHOLD
+CRON_SCHEDULE=$CRON_SCHEDULE
 EOF
   fi
 
@@ -708,8 +743,8 @@ EOF
 
   cat <<EOF > "$cron_file"
 # Server health check cron job
-# Runs every 5 minutes to log system statistics
-*/5 * * * * root /bin/bash "$health_script"
+# Configured schedule: $CRON_SCHEDULE
+$CRON_SCHEDULE root /bin/bash "$health_script"
 EOF
 
   chmod 644 "$cron_file"

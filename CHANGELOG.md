@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-07-05
+
+### Added
+- Added `--cron-schedule` option to customize periodic monitoring executions.
+- Implemented validations for standard shortcuts (`hourly`, `daily`, `weekly`) and raw 5-field cron syntax.
+- Appended configuration templates and defaults to save active schedules inside target directories.
+- Added Test 18 (`test_cron_schedule_custom`) and Test 19 (`test_cron_schedule_invalid_fails`).
+
 ## [0.8.0] - 2026-07-05
 
 ### Added

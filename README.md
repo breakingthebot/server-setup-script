@@ -17,6 +17,7 @@ A robust, portable, and testable Bash script designed to automate initial server
 - **Diagnostic Fail-Safe Archiving**: On failure, the script gathers system configurations, installation logs, and system resource specifications (EUID, disk usage, memory logs) into a compressed tarball before rollback occurs, facilitating easy offline analysis.
 - **Active Resource Monitoring Alerts**: The scheduled health check cron script monitors memory and disk levels against custom percentage limits (`--disk-threshold` and `--mem-threshold`), logging `[ALERT]` flags and triggering webhook notifications on threshold breaches.
 - **Systemd Service Generator**: Generates and installs customized Systemd service unit files (`<service-name>.service`), automatically reloading the systemctl daemon, enabling, and starting the background service on supported systems.
+- **Cron Schedule Customization**: Setup supports configuring custom periodic execution intervals via `--cron-schedule` (mapping shortcuts like `hourly`, `daily`, `weekly` to standard cron formatting).
 
 ## Usage
 
@@ -50,6 +51,7 @@ Options:
       --service-cmd CMD       Command the Systemd service should execute
       --service-user USER     User context to run the Systemd service (default: root)
       --systemd-dir DIR       Override Systemd configuration folder (default: /etc/systemd/system)
+      --cron-schedule SCHED   Cron schedule for health check (default: */5 * * * *, supports 'hourly', 'daily', 'weekly')
 ```
 
 ## Local Development & Testing

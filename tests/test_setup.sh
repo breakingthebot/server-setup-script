@@ -497,6 +497,72 @@ test_systemd_empty_cmd_fails() {
   return 0
 }
 
+# Test 18: Custom cron schedule parameters written
+test_cron_schedule_custom() {
+  local temp_dir="$SANDBOX/cron_sched_test"
+  mkdir -p "$temp_dir/config" "$temp_dir/cron" "$temp_dir/log"
+  
+  # Test shortcut mapping 'hourly'
+  "$SETUP_SCRIPT" --skip-root-check \
+    --config-dir "$temp_dir/config" \
+    --cron-dir "$temp_dir/cron" \
+    --log-dir "$temp_dir/log" \
+    --cron-schedule "hourly" >/dev/null
+    
+  local cron_file="$temp_dir/cron/server-health-check"
+  if [ ! -f "$cron_file" ]; then
+    echo "Cron file not generated" >&2
+    return 1
+  fi
+  
+  if ! grep -q "0 \* \* \* \*" "$cron_file"; then
+    echo "hourly shortcut did not map correctly" >&2
+    return 1
+  fi
+  
+  # Test custom 5-field expression
+  "$SETUP_SCRIPT" --skip-root-check \
+    --config-dir "$temp_dir/config" \
+    --cron-dir "$temp_dir/cron" \
+    --log-dir "$temp_dir/log" \
+    --cron-schedule "1 2 3 4 5" >/dev/null
+    
+  if ! grep -q "1 2 3 4 5" "$cron_file"; then
+    echo "Custom 5-field cron schedule was not written" >&2
+    return 1
+  fi
+  
+  return 0
+}
+
+# Test 19: Invalid cron schedules fail validation
+test_cron_schedule_invalid_fails() {
+  local temp_dir="$SANDBOX/cron_invalid_test"
+  mkdir -p "$temp_dir/config" "$temp_dir/cron" "$temp_dir/log"
+  
+  # Attempt invalid schedule with only 4 fields
+  if "$SETUP_SCRIPT" --skip-root-check \
+    --config-dir "$temp_dir/config" \
+    --cron-dir "$temp_dir/cron" \
+    --log-dir "$temp_dir/log" \
+    --cron-schedule "* * * *" >/dev/null 2>&1; then
+    echo "Expected setup script to fail on 4-field cron schedule" >&2
+    return 1
+  fi
+  
+  # Attempt invalid shortcut
+  if "$SETUP_SCRIPT" --skip-root-check \
+    --config-dir "$temp_dir/config" \
+    --cron-dir "$temp_dir/cron" \
+    --log-dir "$temp_dir/log" \
+    --cron-schedule "every-minute" >/dev/null 2>&1; then
+    echo "Expected setup script to fail on invalid shortcut" >&2
+    return 1
+  fi
+  
+  return 0
+}
+
 # Clean up before running
 rm -rf "$SANDBOX"
 mkdir -p "$SANDBOX"
@@ -519,6 +585,8 @@ run_test "Custom thresholds written to config" test_custom_thresholds_written
 run_test "Health check threshold alert triggers" test_health_check_threshold_alert
 run_test "Systemd service unit creation" test_systemd_service_creation
 run_test "Systemd service empty command fails" test_systemd_empty_cmd_fails
+run_test "Custom cron schedule parameter" test_cron_schedule_custom
+run_test "Invalid cron schedules fail validation" test_cron_schedule_invalid_fails
 
 # Clean up sandbox after tests pass
 rm -rf "$SANDBOX"

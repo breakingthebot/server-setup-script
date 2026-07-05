@@ -42,6 +42,11 @@ This log documents key architecture decisions, testing approaches, and design co
 - **Dynamic Service Lifecycle Management**: Integrated lifecycle calls to reload the systemd daemon (`systemctl daemon-reload`), register the service to auto-start on system boot (`systemctl enable`), and launch it immediately (`systemctl start`).
 - **Target OS Fail-Safe**: Validates availability of the `systemctl` executable first. On non-Linux or test platforms (such as local Windows environments), enablement instructions are safely bypassed with a standard warning, avoiding build errors.
 
+### 9. Health Check Cron Schedule Customization
+- **Parameterizable Schedule Overrides**: Added the `--cron-schedule` option to allow overriding the default 5-minute health check interval with custom cron expressions.
+- **Shortcut Expressions Mapping**: Implemented validation and translation of shortcut schedules (`hourly`, `daily`, `weekly`) to standard cron expressions (`0 * * * *`, `0 0 * * *`, `0 0 * * 0`).
+- **Schedule Syntax Verification**: Validates custom expressions by verifying they contain exactly 5 whitespace-separated fields, failing early on incorrect specifications.
+
 ## Iterations Log
 
 ### Iteration 1 (v0.1.0) - Base Setup
@@ -84,3 +89,9 @@ This log documents key architecture decisions, testing approaches, and design co
 - Built Systemd unit template generator producing robust unit configuration files.
 - Integrated systemctl lifecycle controls (`daemon-reload`, `enable`, `start`) with OS capability fallbacks.
 - Added Test 16 (`test_systemd_service_creation`) and Test 17 (`test_systemd_empty_cmd_fails`).
+
+### Iteration 9 (v0.9.0) - Health Check Cron Schedule Customization
+- Added `--cron-schedule` option to customize periodic monitoring executions.
+- Implemented validations for standard shortcuts (`hourly`, `daily`, `weekly`) and raw 5-field cron syntax.
+- Appended configuration templates and defaults to save active schedules inside target directories.
+- Added Test 18 (`test_cron_schedule_custom`) and Test 19 (`test_cron_schedule_invalid_fails`).
