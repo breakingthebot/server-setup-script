@@ -15,6 +15,7 @@ A robust, portable, and testable Bash script designed to automate initial server
 - **Webhook Status Notifications**: Dispatches real-time setup outcomes (`SUCCESS` or `FAILURE`) along with run duration and server hostname to a target Slack, Discord, or generic webhook endpoint.
 - **Logging Level Filtering**: Filters console output using logging levels (`DEBUG`, `INFO`, `WARN`, `ERROR`), printing timestamps and log tags for standard operations.
 - **Diagnostic Fail-Safe Archiving**: On failure, the script gathers system configurations, installation logs, and system resource specifications (EUID, disk usage, memory logs) into a compressed tarball before rollback occurs, facilitating easy offline analysis.
+- **Active Resource Monitoring Alerts**: The scheduled health check cron script monitors memory and disk levels against custom percentage limits (`--disk-threshold` and `--mem-threshold`), logging `[ALERT]` flags and triggering webhook notifications on threshold breaches.
 
 ## Usage
 
@@ -42,6 +43,8 @@ Options:
       --template-vars STR     Space-separated KEY=VAL overrides for template
   -w, --webhook-url URL       Webhook URL for status notifications
   -l, --log-level LEVEL       Log level: DEBUG, INFO, WARN, ERROR (default: INFO)
+      --disk-threshold PCT    Disk usage alert threshold percentage (default: 90)
+      --mem-threshold PCT     Memory usage alert threshold percentage (default: 90)
 ```
 
 ## Local Development & Testing

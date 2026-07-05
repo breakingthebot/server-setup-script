@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-05
+
+### Added
+- Added `--disk-threshold` and `--mem-threshold` configuration flags to customize threshold limits for resource monitoring alerts.
+- Programmed generated `health-check.sh` cron script to read system memory/disk usage and evaluate them against limits.
+- Implemented `trigger_alert` webhook alerts triggered when memory or disk usage breaches configured thresholds.
+- Added automated Test 14 (`test_custom_thresholds_written`) and Test 15 (`test_health_check_threshold_alert`).
+
 ## [0.6.0] - 2026-07-05
 
 ### Added

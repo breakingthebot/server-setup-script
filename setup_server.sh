@@ -19,6 +19,8 @@ TEMPLATE_FILE=""
 TEMPLATE_VARS=""
 WEBHOOK_URL=""
 LOG_LEVEL="INFO"
+ALERT_DISK_THRESHOLD=90
+ALERT_MEM_THRESHOLD=90
 
 # Display usage information
 show_help() {
@@ -38,6 +40,8 @@ Options:
       --template-vars STR     Space-separated KEY=VAL overrides for template
   -w, --webhook-url URL       Webhook URL for status notifications
   -l, --log-level LEVEL       Log level: DEBUG, INFO, WARN, ERROR (default: INFO)
+      --disk-threshold PCT    Disk usage alert threshold percentage (default: 90)
+      --mem-threshold PCT     Memory usage alert threshold percentage (default: 90)
 EOF
 }
 
@@ -126,6 +130,22 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       LOG_LEVEL="$2"
+      shift 2
+      ;;
+    --disk-threshold)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --disk-threshold requires an argument." >&2
+        exit 1
+      fi
+      ALERT_DISK_THRESHOLD="$2"
+      shift 2
+      ;;
+    --mem-threshold)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --mem-threshold requires an argument." >&2
+        exit 1
+      fi
+      ALERT_MEM_THRESHOLD="$2"
       shift 2
       ;;
     *)
@@ -493,6 +513,9 @@ configure_environment() {
       rendered_line="${rendered_line//\{\{SYS_CHECK_INTERVAL\}\}/${SYS_CHECK_INTERVAL:-300}}"
       rendered_line="${rendered_line//\{\{CONFIG_DIR\}\}/$CONFIG_DIR}"
       rendered_line="${rendered_line//\{\{LOG_DIR\}\}/$LOG_DIR}"
+      rendered_line="${rendered_line//\{\{WEBHOOK_URL\}\}/${WEBHOOK_URL:-}}"
+      rendered_line="${rendered_line//\{\{ALERT_DISK_THRESHOLD\}\}/${ALERT_DISK_THRESHOLD:-90}}"
+      rendered_line="${rendered_line//\{\{ALERT_MEM_THRESHOLD\}\}/${ALERT_MEM_THRESHOLD:-90}}"
 
       echo "$rendered_line" >> "$env_file"
     done < "$TEMPLATE_FILE"
@@ -503,6 +526,9 @@ configure_environment() {
 APP_ENV=production
 LOG_PATH=$LOG_DIR/server.log
 SYS_CHECK_INTERVAL=300
+WEBHOOK_URL=$WEBHOOK_URL
+ALERT_DISK_THRESHOLD=$ALERT_DISK_THRESHOLD
+ALERT_MEM_THRESHOLD=$ALERT_MEM_THRESHOLD
 EOF
   fi
 
@@ -549,6 +575,30 @@ LOG_DIR="$(dirname "$LOG_PATH")"
 
 mkdir -p "$LOG_DIR"
 
+# Helper for triggering threshold alerts
+trigger_alert() {
+  local type="$1"
+  local details="$2"
+  
+  echo "[ALERT] [$type] $details" >&2
+  
+  if [ -n "${WEBHOOK_URL:-}" ]; then
+    local host
+    host=$(hostname 2>/dev/null || echo "unknown-host")
+    local payload
+    payload=$(cat <<INNER_EOF
+{
+  "text": "=== Server Alert: $type ===\\n**Host**: $host\\n**Details**: $details"
+}
+INNER_EOF
+)
+    if command -v curl &>/dev/null; then
+      # Run in background to avoid blocking cron
+      curl -s -X POST -H "Content-Type: application/json" -d "$payload" --max-time 10 "$WEBHOOK_URL" &>/dev/null &
+    fi
+  fi
+}
+
 {
   echo "=== Health Check: $(date) ==="
   echo "Uptime:"
@@ -568,6 +618,39 @@ mkdir -p "$LOG_DIR"
   echo "================================="
   echo ""
 } >> "$LOG_PATH"
+
+# Perform active resource monitoring checks
+# 1. Disk usage threshold alert
+disk_pct=""
+if command -v df &>/dev/null; then
+  disk_pct=$(df -h / 2>/dev/null || df -h .)
+  disk_pct=$(echo "$disk_pct" | tail -n 1 | grep -o -E '[0-9]+%' | tr -d '%')
+fi
+
+ALERT_DISK_THRESHOLD="${ALERT_DISK_THRESHOLD:-90}"
+if [ -n "$disk_pct" ] && [ "$disk_pct" -gt "$ALERT_DISK_THRESHOLD" ]; then
+  msg="Disk usage is at ${disk_pct}% (threshold: ${ALERT_DISK_THRESHOLD}%)"
+  echo "[ALERT] $(date '+%Y-%m-%d %H:%M:%S') - $msg" >> "$LOG_PATH"
+  trigger_alert "DISK" "$msg"
+fi
+
+# 2. Memory usage threshold alert
+mem_total=""
+mem_used=""
+if command -v free &>/dev/null; then
+  mem_total=$(free -m | grep Mem: | awk '{print $2}')
+  mem_used=$(free -m | grep Mem: | awk '{print $3}')
+fi
+
+ALERT_MEM_THRESHOLD="${ALERT_MEM_THRESHOLD:-90}"
+if [ -n "$mem_total" ] && [ "$mem_total" -gt 0 ]; then
+  mem_pct=$((mem_used * 100 / mem_total))
+  if [ "$mem_pct" -gt "$ALERT_MEM_THRESHOLD" ]; then
+    msg="Memory usage is at ${mem_pct}% (threshold: ${ALERT_MEM_THRESHOLD}%)"
+    echo "[ALERT] $(date '+%Y-%m-%d %H:%M:%S') - $msg" >> "$LOG_PATH"
+    trigger_alert "MEM" "$msg"
+  fi
+fi
 EOF
 
   chmod +x "$health_script"

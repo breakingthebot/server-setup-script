@@ -32,6 +32,11 @@ This log documents key architecture decisions, testing approaches, and design co
 - **Early-State Diagnostics Capture**: On execution failure, the script generates a diagnostics report (system-info containing timestamp, hostname, OS uname details, disk utilization, and free memory) and copies the config/log folders *before* triggering the rollback sequence.
 - **Diagnostics Tarball Compilation**: Compresses diagnostic files into a `setup-diagnostics-<timestamp>.tar.gz` archive, saving it to the parent directory for troubleshooting reference while maintaining a clean final system state.
 
+### 7. Active Resource Monitoring & Alerting
+- **Threshold Configuration Persistence**: Exposed `--disk-threshold` and `--mem-threshold` configuration flags. Threshold values are persisted inside `env.conf` (or templated during generation) to allow runtime tuning without modifying cron script code.
+- **Automated Resource Monitoring**: Programmed `health-check.sh` to extract active disk usage (via `df`) and memory utilization (via `free`), evaluating them against the configured limit percentages.
+- **Dual alert triggers**: Real-time threshold breaches log standard warning messages to `server.log` and asynchronously POST a JSON formatted webhook alert containing details and target hostname to operations.
+
 ## Iterations Log
 
 ### Iteration 1 (v0.1.0) - Base Setup
@@ -62,3 +67,9 @@ This log documents key architecture decisions, testing approaches, and design co
 - Implemented logging utility helper functions and output level filtering.
 - Implemented `export_diagnostics` packaging up configurations, setup logs, and system details into a compressed tarball on script failure.
 - Added Test 12 (`test_logging_filtering`) and Test 13 (`test_diagnostics_archive_on_failure`).
+
+### Iteration 7 (v0.7.0) - Active Resource Monitoring Alerts
+- Added `--disk-threshold` and `--mem-threshold` options.
+- Saved active thresholds and webhook URLs inside target `env.conf` files.
+- Programmed generated `health-check.sh` to extract resource usage, check thresholds, and trigger alert webhooks.
+- Added Test 14 (`test_custom_thresholds_written`) and Test 15 (`test_health_check_threshold_alert`).

@@ -375,6 +375,74 @@ test_diagnostics_archive_on_failure() {
   return 0
 }
 
+# Test 14: Custom threshold parameters are written to env.conf
+test_custom_thresholds_written() {
+  local temp_dir="$SANDBOX/thresholds_test"
+  mkdir -p "$temp_dir/config" "$temp_dir/cron" "$temp_dir/log"
+  
+  "$SETUP_SCRIPT" --skip-root-check \
+    --config-dir "$temp_dir/config" \
+    --cron-dir "$temp_dir/cron" \
+    --log-dir "$temp_dir/log" \
+    --disk-threshold 80 \
+    --mem-threshold 75 >/dev/null
+    
+  local gen_config="$temp_dir/config/env.conf"
+  if [ ! -f "$gen_config" ]; then
+    echo "env.conf not generated" >&2
+    return 1
+  fi
+  
+  if ! grep -q "ALERT_DISK_THRESHOLD=80" "$gen_config"; then
+    echo "ALERT_DISK_THRESHOLD not written correctly" >&2
+    return 1
+  fi
+  if ! grep -q "ALERT_MEM_THRESHOLD=75" "$gen_config"; then
+    echo "ALERT_MEM_THRESHOLD not written correctly" >&2
+    return 1
+  fi
+  
+  return 0
+}
+
+# Test 15: Health-check active monitoring alert threshold triggers
+test_health_check_threshold_alert() {
+  local temp_dir="$SANDBOX/alert_test"
+  mkdir -p "$temp_dir/config" "$temp_dir/cron" "$temp_dir/log"
+  
+  # Configure setup with 0% thresholds so it will always alert
+  "$SETUP_SCRIPT" --skip-root-check \
+    --config-dir "$temp_dir/config" \
+    --cron-dir "$temp_dir/cron" \
+    --log-dir "$temp_dir/log" \
+    --disk-threshold 0 \
+    --mem-threshold 0 \
+    --webhook-url "http://example.com/alert-webhook" >/dev/null
+    
+  # Execute health-check.sh helper
+  "$temp_dir/config/health-check.sh" >/dev/null 2>&1
+  
+  local log_file="$temp_dir/log/server.log"
+  if [ ! -f "$log_file" ]; then
+    echo "server.log not found after running health-check.sh" >&2
+    return 1
+  fi
+  
+  # Assert that alert messages are written to log file
+  if ! grep -q "\[ALERT\]" "$log_file"; then
+    echo "Alert message was not logged in server.log under 0% thresholds" >&2
+    return 1
+  fi
+  
+  # Also check if it logged the alert details for Disk or Memory
+  if ! grep -q "Disk usage is at" "$log_file" && ! grep -q "Memory usage is at" "$log_file"; then
+    echo "Specific resource alert description missing in server.log" >&2
+    return 1
+  fi
+  
+  return 0
+}
+
 # Clean up before running
 rm -rf "$SANDBOX"
 mkdir -p "$SANDBOX"
@@ -393,6 +461,8 @@ run_test "Missing template file fails" test_missing_template_file
 run_test "Webhook dry-run notification" test_webhook_dry_run
 run_test "Log level console output filtering" test_logging_filtering
 run_test "Diagnostics archive creation on failure" test_diagnostics_archive_on_failure
+run_test "Custom thresholds written to config" test_custom_thresholds_written
+run_test "Health check threshold alert triggers" test_health_check_threshold_alert
 
 # Clean up sandbox after tests pass
 rm -rf "$SANDBOX"
