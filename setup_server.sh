@@ -11,6 +11,7 @@ CONFIG_DIR="/etc/server-setup"
 CRON_DIR="/etc/cron.d"
 LOG_DIR="/var/log/server-setup"
 DEPENDENCIES="curl git htop cron"
+DEPENDENCIES_FILE=""
 
 # Display usage information
 show_help() {
@@ -18,13 +19,14 @@ show_help() {
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
-  -h, --help               Show this help message and exit
-  -d, --dry-run            Show what actions would be taken without making changes
-  -s, --skip-root-check    Skip checking if script is run as root/sudo
-  -c, --config-dir DIR     Override configuration directory (default: $CONFIG_DIR)
-      --cron-dir DIR       Override cron configuration directory (default: $CRON_DIR)
-      --log-dir DIR        Override log directory (default: $LOG_DIR)
-      --dependencies LIST  Space-separated list of dependencies to install
+  -h, --help                  Show this help message and exit
+  -d, --dry-run               Show what actions would be taken without making changes
+  -s, --skip-root-check       Skip checking if script is run as root/sudo
+  -c, --config-dir DIR        Override configuration directory (default: $CONFIG_DIR)
+      --cron-dir DIR          Override cron configuration directory (default: $CRON_DIR)
+      --log-dir DIR           Override log directory (default: $LOG_DIR)
+      --dependencies LIST     Space-separated list of dependencies to install
+  -f, --dependencies-file FILE File containing list of packages to install (one per line)
 EOF
 }
 
@@ -75,6 +77,14 @@ while [[ $# -gt 0 ]]; do
       DEPENDENCIES="$2"
       shift 2
       ;;
+    -f|--dependencies-file)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --dependencies-file requires an argument." >&2
+        exit 1
+      fi
+      DEPENDENCIES_FILE="$2"
+      shift 2
+      ;;
     *)
       echo "Error: Unknown option $1" >&2
       show_help >&2
@@ -82,6 +92,17 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Read dependencies file if provided
+if [ -n "$DEPENDENCIES_FILE" ]; then
+  if [ ! -f "$DEPENDENCIES_FILE" ]; then
+    echo "Error: Dependencies file '$DEPENDENCIES_FILE' not found." >&2
+    exit 1
+  fi
+  # Read non-empty lines, ignoring comments
+  DEPENDENCIES=$(grep -v '^[[:space:]]*#' "$DEPENDENCIES_FILE" | grep -v '^[[:space:]]*$' | tr '\n' ' ')
+  DEPENDENCIES=$(echo "$DEPENDENCIES" | xargs)
+fi
 
 echo "=== Server Setup Started ==="
 if [ "$DRY_RUN" = "true" ]; then
@@ -148,6 +169,65 @@ install_dependencies() {
       echo "Warning: Unknown or unsupported package manager. Skipping dependency installation." >&2
       ;;
   esac
+}
+
+# Verify installed dependencies
+verify_dependencies() {
+  local pm
+  pm=$(detect_package_manager)
+  echo "Verifying installed dependencies..."
+
+  local failed_deps=()
+
+  for dep in $DEPENDENCIES; do
+    if [ "$DRY_RUN" = "true" ]; then
+      echo "[DRY RUN] Would verify package installation for: $dep"
+      continue
+    fi
+
+    # Perform package manager specific check or command fallback
+    local is_installed=false
+    case "$pm" in
+      apt)
+        if dpkg -s "$dep" &>/dev/null; then
+          is_installed=true
+        fi
+        ;;
+      yum|dnf)
+        if rpm -q "$dep" &>/dev/null; then
+          is_installed=true
+        fi
+        ;;
+      pacman)
+        if pacman -Q "$dep" &>/dev/null; then
+          is_installed=true
+        fi
+        ;;
+    esac
+
+    # Fallback to checking if the command is executable if package manager check failed or is unknown
+    if [ "$is_installed" = "false" ]; then
+      if command -v "$dep" &>/dev/null; then
+        is_installed=true
+      fi
+    fi
+
+    if [ "$is_installed" = "true" ]; then
+      echo "  Verification PASSED: $dep is installed."
+    else
+      echo "  Verification FAILED: $dep is NOT installed/accessible." >&2
+      failed_deps+=("$dep")
+    fi
+  done
+
+  if [ ${#failed_deps[@]} -ne 0 ] && [ "$DRY_RUN" = "false" ]; then
+    if [ "$pm" = "unknown" ]; then
+      echo "Warning: Verification failed for [${failed_deps[*]}], but skipping enforcement because no package manager was detected." >&2
+    else
+      echo "Error: The following dependencies failed verification: ${failed_deps[*]}" >&2
+      exit 1
+    fi
+  fi
 }
 
 # Configure environment
@@ -251,6 +331,7 @@ EOF
 
 # Run tasks
 install_dependencies
+verify_dependencies
 configure_environment
 setup_cron_jobs
 

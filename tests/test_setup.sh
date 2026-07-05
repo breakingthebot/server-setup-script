@@ -126,6 +126,57 @@ test_health_check_execution() {
   return 0
 }
 
+# Test 6: Custom dependencies file parsing and dry-run verification output
+test_custom_dependencies_file() {
+  local dep_file="$SANDBOX/deps.txt"
+  # Create a custom dependencies file with comments and empty lines
+  cat <<EOF > "$dep_file"
+# This is a comment
+  
+bash
+curl
+# Another comment
+git
+EOF
+
+  local test_sandbox="$SANDBOX/custom_deps"
+  mkdir -p "$test_sandbox/config" "$test_sandbox/cron" "$test_sandbox/log"
+
+  # We use dry-run to print output and capture it
+  local output
+  output=$("$SETUP_SCRIPT" --dry-run --skip-root-check \
+    --config-dir "$test_sandbox/config" \
+    --cron-dir "$test_sandbox/cron" \
+    --log-dir "$test_sandbox/log" \
+    --dependencies-file "$dep_file")
+    
+  # Check if dry-run installs only the packages listed in deps.txt (bash, curl, git)
+  if ! echo "$output" | grep -q "Would use package manager '.*' to install: bash curl git"; then
+    echo "Dry-run installation output mismatch" >&2
+    return 1
+  fi
+
+  # Check if dry-run verifies packages listed in deps.txt
+  if ! echo "$output" | grep -q "Would verify package installation for: bash" || \
+     ! echo "$output" | grep -q "Would verify package installation for: curl" || \
+     ! echo "$output" | grep -q "Would verify package installation for: git"; then
+    echo "Dry-run verification output mismatch" >&2
+    return 1
+  fi
+  return 0
+}
+
+# Test 7: Missing dependencies file fails
+test_missing_dependencies_file() {
+  local non_existent_file="$SANDBOX/does_not_exist.txt"
+  
+  if "$SETUP_SCRIPT" --dry-run --skip-root-check --dependencies-file "$non_existent_file" &>/dev/null; then
+    return 1 # Should fail
+  else
+    return 0 # Failed as expected
+  fi
+}
+
 # Clean up before running
 rm -rf "$SANDBOX"
 mkdir -p "$SANDBOX"
@@ -136,6 +187,8 @@ run_test "Invalid options fail" test_invalid_option
 run_test "Dry run doesn't write" test_dry_run
 run_test "Successful setup" test_successful_setup
 run_test "Health check script execution" test_health_check_execution
+run_test "Custom dependencies file" test_custom_dependencies_file
+run_test "Missing dependencies file fails" test_missing_dependencies_file
 
 # Clean up sandbox after tests pass
 rm -rf "$SANDBOX"

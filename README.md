@@ -5,6 +5,7 @@ A robust, portable, and testable Bash script designed to automate initial server
 ## Features
 
 - **Dependency Installation**: Auto-detects the system's package manager (`apt`, `yum`, `dnf`, `pacman`) and installs a list of default or custom packages.
+- **Dependency Verification**: Performs post-installation checks to verify that every requested dependency is correctly installed on the system using package manager checks (e.g. `dpkg`, `rpm`, `pacman`) or executable availability.
 - **Environment Configuration**: Generates an environment configuration file (`env.conf`) with configuration parameters like log paths and environment modes.
 - **Cron Jobs**: Configures a system-wide cron job (`server-health-check`) that triggers a system health check helper script periodically.
 - **Test Mode & Safety**: Supports a `--dry-run` mode to inspect actions before applying them, and `--skip-root-check` to support running/testing in non-privileged environments.
@@ -24,13 +25,14 @@ sudo ./setup_server.sh
 Usage: setup_server.sh [OPTIONS]
 
 Options:
-  -h, --help               Show this help message and exit
-  -d, --dry-run            Show what actions would be taken without making changes
-  -s, --skip-root-check    Skip checking if script is run as root/sudo
-  -c, --config-dir DIR     Override configuration directory (default: /etc/server-setup)
-      --cron-dir DIR       Override cron configuration directory (default: /etc/cron.d)
-      --log-dir DIR        Override log directory (default: /var/log/server-setup)
-      --dependencies LIST  Space-separated list of dependencies to install
+  -h, --help                  Show this help message and exit
+  -d, --dry-run               Show what actions would be taken without making changes
+  -s, --skip-root-check       Skip checking if script is run as root/sudo
+  -c, --config-dir DIR        Override configuration directory (default: /etc/server-setup)
+      --cron-dir DIR          Override cron configuration directory (default: /etc/cron.d)
+      --log-dir DIR           Override log directory (default: /var/log/server-setup)
+      --dependencies LIST     Space-separated list of dependencies to install
+  -f, --dependencies-file FILE File containing list of packages to install (one per line)
 ```
 
 ## Local Development & Testing
