@@ -37,6 +37,11 @@ This log documents key architecture decisions, testing approaches, and design co
 - **Automated Resource Monitoring**: Programmed `health-check.sh` to extract active disk usage (via `df`) and memory utilization (via `free`), evaluating them against the configured limit percentages.
 - **Dual alert triggers**: Real-time threshold breaches log standard warning messages to `server.log` and asynchronously POST a JSON formatted webhook alert containing details and target hostname to operations.
 
+### 8. Systemd Service Configuration & Enablement Helper
+- **Automated Service Unit File Generation**: Added support for creating custom Systemd unit configuration files (`<service-name>.service`) specifying custom commands (`--service-cmd`), execution users (`--service-user`), auto-restart strategies, and unit descriptions.
+- **Dynamic Service Lifecycle Management**: Integrated lifecycle calls to reload the systemd daemon (`systemctl daemon-reload`), register the service to auto-start on system boot (`systemctl enable`), and launch it immediately (`systemctl start`).
+- **Target OS Fail-Safe**: Validates availability of the `systemctl` executable first. On non-Linux or test platforms (such as local Windows environments), enablement instructions are safely bypassed with a standard warning, avoiding build errors.
+
 ## Iterations Log
 
 ### Iteration 1 (v0.1.0) - Base Setup
@@ -73,3 +78,9 @@ This log documents key architecture decisions, testing approaches, and design co
 - Saved active thresholds and webhook URLs inside target `env.conf` files.
 - Programmed generated `health-check.sh` to extract resource usage, check thresholds, and trigger alert webhooks.
 - Added Test 14 (`test_custom_thresholds_written`) and Test 15 (`test_health_check_threshold_alert`).
+
+### Iteration 8 (v0.8.0) - Systemd Service Configuration Helper
+- Added `--service-name`, `--service-cmd`, `--service-user`, and `--systemd-dir` flags.
+- Built Systemd unit template generator producing robust unit configuration files.
+- Integrated systemctl lifecycle controls (`daemon-reload`, `enable`, `start`) with OS capability fallbacks.
+- Added Test 16 (`test_systemd_service_creation`) and Test 17 (`test_systemd_empty_cmd_fails`).

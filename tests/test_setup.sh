@@ -443,6 +443,60 @@ test_health_check_threshold_alert() {
   return 0
 }
 
+# Test 16: Systemd service unit creation
+test_systemd_service_creation() {
+  local temp_dir="$SANDBOX/systemd_test"
+  mkdir -p "$temp_dir/config" "$temp_dir/cron" "$temp_dir/log" "$temp_dir/systemd"
+  
+  "$SETUP_SCRIPT" --skip-root-check \
+    --config-dir "$temp_dir/config" \
+    --cron-dir "$temp_dir/cron" \
+    --log-dir "$temp_dir/log" \
+    --systemd-dir "$temp_dir/systemd" \
+    --service-name "my-test-service" \
+    --service-cmd "/usr/local/bin/dummy-cmd" \
+    --service-user "test-user" >/dev/null
+    
+  local service_file="$temp_dir/systemd/my-test-service.service"
+  if [ ! -f "$service_file" ]; then
+    echo "Systemd service file was not generated" >&2
+    return 1
+  fi
+  
+  if ! grep -q "Description=Server Setup Custom Service - my-test-service" "$service_file"; then
+    echo "Systemd service Description incorrect" >&2
+    return 1
+  fi
+  if ! grep -q "ExecStart=/usr/local/bin/dummy-cmd" "$service_file"; then
+    echo "Systemd service ExecStart incorrect" >&2
+    return 1
+  fi
+  if ! grep -q "User=test-user" "$service_file"; then
+    echo "Systemd service User incorrect" >&2
+    return 1
+  fi
+  
+  return 0
+}
+
+# Test 17: Service configuration fails if command is empty
+test_systemd_empty_cmd_fails() {
+  local temp_dir="$SANDBOX/systemd_fail_test"
+  mkdir -p "$temp_dir/config" "$temp_dir/cron" "$temp_dir/log" "$temp_dir/systemd"
+  
+  if "$SETUP_SCRIPT" --skip-root-check \
+    --config-dir "$temp_dir/config" \
+    --cron-dir "$temp_dir/cron" \
+    --log-dir "$temp_dir/log" \
+    --systemd-dir "$temp_dir/systemd" \
+    --service-name "my-test-service" >/dev/null 2>&1; then
+    echo "Expected setup script to fail when service-name is set but service-cmd is empty" >&2
+    return 1
+  fi
+  
+  return 0
+}
+
 # Clean up before running
 rm -rf "$SANDBOX"
 mkdir -p "$SANDBOX"
@@ -463,6 +517,8 @@ run_test "Log level console output filtering" test_logging_filtering
 run_test "Diagnostics archive creation on failure" test_diagnostics_archive_on_failure
 run_test "Custom thresholds written to config" test_custom_thresholds_written
 run_test "Health check threshold alert triggers" test_health_check_threshold_alert
+run_test "Systemd service unit creation" test_systemd_service_creation
+run_test "Systemd service empty command fails" test_systemd_empty_cmd_fails
 
 # Clean up sandbox after tests pass
 rm -rf "$SANDBOX"

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-07-05
+
+### Added
+- Added `--service-name`, `--service-cmd`, `--service-user`, and `--systemd-dir` flags to customize custom daemon settings.
+- Implemented Systemd unit template generator producing robust unit configuration files.
+- Integrated systemctl lifecycle controls (`daemon-reload`, `enable`, `start`) with OS capability fallbacks.
+- Added Test 16 (`test_systemd_service_creation`) and Test 17 (`test_systemd_empty_cmd_fails`).
+
 ## [0.7.0] - 2026-07-05
 
 ### Added

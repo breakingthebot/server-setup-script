@@ -21,6 +21,10 @@ WEBHOOK_URL=""
 LOG_LEVEL="INFO"
 ALERT_DISK_THRESHOLD=90
 ALERT_MEM_THRESHOLD=90
+SERVICE_NAME=""
+SERVICE_CMD=""
+SERVICE_USER="root"
+SYSTEMD_DIR="/etc/systemd/system"
 
 # Display usage information
 show_help() {
@@ -42,6 +46,10 @@ Options:
   -l, --log-level LEVEL       Log level: DEBUG, INFO, WARN, ERROR (default: INFO)
       --disk-threshold PCT    Disk usage alert threshold percentage (default: 90)
       --mem-threshold PCT     Memory usage alert threshold percentage (default: 90)
+      --service-name NAME     Name of Systemd service to create (skipped if empty)
+      --service-cmd CMD       Command the Systemd service should execute
+      --service-user USER     User context to run the Systemd service (default: root)
+      --systemd-dir DIR       Override Systemd configuration folder (default: /etc/systemd/system)
 EOF
 }
 
@@ -146,6 +154,38 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       ALERT_MEM_THRESHOLD="$2"
+      shift 2
+      ;;
+    --service-name)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --service-name requires an argument." >&2
+        exit 1
+      fi
+      SERVICE_NAME="$2"
+      shift 2
+      ;;
+    --service-cmd)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --service-cmd requires an argument." >&2
+        exit 1
+      fi
+      SERVICE_CMD="$2"
+      shift 2
+      ;;
+    --service-user)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --service-user requires an argument." >&2
+        exit 1
+      fi
+      SERVICE_USER="$2"
+      shift 2
+      ;;
+    --systemd-dir)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --systemd-dir requires an argument." >&2
+        exit 1
+      fi
+      SYSTEMD_DIR="$2"
       shift 2
       ;;
     *)
@@ -674,7 +714,66 @@ EOF
 
   chmod 644 "$cron_file"
   
-  echo "Cron jobs set up successfully."
+  log_info "Cron jobs set up successfully."
+}
+
+# Set up Systemd service helper
+setup_systemd_service() {
+  if [ -z "${SERVICE_NAME:-}" ]; then
+    return 0
+  fi
+  
+  if [ -z "${SERVICE_CMD:-}" ]; then
+    log_error "Error: --service-name was specified, but --service-cmd is empty."
+    exit 1
+  fi
+  
+  log_info "Configuring Systemd service '$SERVICE_NAME'..."
+  
+  local service_file="$SYSTEMD_DIR/${SERVICE_NAME}.service"
+  
+  if [ "$DRY_RUN" = "true" ]; then
+    log_info "[DRY RUN] Would create Systemd unit: $service_file"
+    log_info "[DRY RUN] Would daemon-reload, enable, and start service: $SERVICE_NAME"
+    return 0
+  fi
+  
+  if [ ! -d "$SYSTEMD_DIR" ]; then
+    mkdir -p "$SYSTEMD_DIR"
+    record_created_path "$SYSTEMD_DIR"
+  fi
+  
+  if [ ! -f "$service_file" ]; then
+    record_created_path "$service_file"
+  fi
+  
+  cat <<EOF > "$service_file"
+[Unit]
+Description=Server Setup Custom Service - $SERVICE_NAME
+After=network.target
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+ExecStart=$SERVICE_CMD
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  chmod 644 "$service_file"
+  log_info "Systemd service file created at $service_file"
+  
+  if command -v systemctl &>/dev/null; then
+    log_info "Enabling and starting service $SERVICE_NAME..."
+    systemctl daemon-reload
+    systemctl enable "$SERVICE_NAME"
+    systemctl start "$SERVICE_NAME"
+    log_info "Systemd service $SERVICE_NAME is enabled and started."
+  else
+    log_warn "systemctl command not found. Skipping service enablement/start."
+  fi
 }
 
 # Run tasks
@@ -682,7 +781,8 @@ install_dependencies
 verify_dependencies
 configure_environment
 setup_cron_jobs
+setup_systemd_service
 
-send_webhook_notification "SUCCESS" "Server setup completed successfully. Configured environment in $CONFIG_DIR and cron jobs in $CRON_DIR."
+send_webhook_notification "SUCCESS" "Server setup completed successfully. Configured environment in $CONFIG_DIR, cron jobs in $CRON_DIR, and Systemd service."
 
 log_info "=== Server Setup Completed Successfully ==="
