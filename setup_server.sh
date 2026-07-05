@@ -12,6 +12,8 @@ CRON_DIR="/etc/cron.d"
 LOG_DIR="/var/log/server-setup"
 DEPENDENCIES="curl git htop cron"
 DEPENDENCIES_FILE=""
+TEMPLATE_FILE=""
+TEMPLATE_VARS=""
 
 # Display usage information
 show_help() {
@@ -27,6 +29,8 @@ Options:
       --log-dir DIR           Override log directory (default: $LOG_DIR)
       --dependencies LIST     Space-separated list of dependencies to install
   -f, --dependencies-file FILE File containing list of packages to install (one per line)
+  -t, --template FILE         Path to configuration template file
+      --template-vars STR     Space-separated KEY=VAL overrides for template
 EOF
 }
 
@@ -85,6 +89,22 @@ while [[ $# -gt 0 ]]; do
       DEPENDENCIES_FILE="$2"
       shift 2
       ;;
+    -t|--template)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --template requires an argument." >&2
+        exit 1
+      fi
+      TEMPLATE_FILE="$2"
+      shift 2
+      ;;
+    --template-vars)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --template-vars requires an argument." >&2
+        exit 1
+      fi
+      TEMPLATE_VARS="$2"
+      shift 2
+      ;;
     *)
       echo "Error: Unknown option $1" >&2
       show_help >&2
@@ -102,6 +122,14 @@ if [ -n "$DEPENDENCIES_FILE" ]; then
   # Read non-empty lines, ignoring comments
   DEPENDENCIES=$(grep -v '^[[:space:]]*#' "$DEPENDENCIES_FILE" | grep -v '^[[:space:]]*$' | tr '\n' ' ')
   DEPENDENCIES=$(echo "$DEPENDENCIES" | xargs)
+fi
+
+# Verify template file if provided
+if [ -n "$TEMPLATE_FILE" ]; then
+  if [ ! -f "$TEMPLATE_FILE" ]; then
+    echo "Error: Template file '$TEMPLATE_FILE' not found." >&2
+    exit 1
+  fi
 fi
 
 # Keep track of directories and files created by this run for rollback
@@ -272,7 +300,11 @@ configure_environment() {
   
   if [ "$DRY_RUN" = "true" ]; then
     echo "[DRY RUN] Would create directory: $CONFIG_DIR"
-    echo "[DRY RUN] Would create environment file: $CONFIG_DIR/env.conf"
+    if [ -n "$TEMPLATE_FILE" ]; then
+      echo "[DRY RUN] Would render template file '$TEMPLATE_FILE' to: $CONFIG_DIR/env.conf"
+    else
+      echo "[DRY RUN] Would create environment file: $CONFIG_DIR/env.conf"
+    fi
     echo "[DRY RUN] Would create log directory: $LOG_DIR"
     return 0
   fi
@@ -293,13 +325,48 @@ configure_environment() {
     record_created_path "$env_file"
   fi
 
-  cat <<EOF > "$env_file"
+  if [ -n "$TEMPLATE_FILE" ]; then
+    echo "Rendering template '$TEMPLATE_FILE'..."
+    
+    # Process overrides from TEMPLATE_VARS
+    local vars_list=()
+    for pair in $TEMPLATE_VARS; do
+      vars_list+=("$pair")
+    done
+
+    # Truncate/create env_file
+    > "$env_file"
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      local rendered_line="$line"
+      
+      # Replace key=value overrides
+      for pair in "${vars_list[@]:-}"; do
+        if [ -n "$pair" ]; then
+          local key="${pair%%=*}"
+          local val="${pair#*=}"
+          rendered_line="${rendered_line//\{\{$key\}\}/$val}"
+        fi
+      done
+      
+      # Fallback defaults for standard setup variables
+      rendered_line="${rendered_line//\{\{APP_ENV\}\}/${APP_ENV:-production}}"
+      rendered_line="${rendered_line//\{\{LOG_PATH\}\}/${LOG_PATH:-$LOG_DIR/server.log}}"
+      rendered_line="${rendered_line//\{\{SYS_CHECK_INTERVAL\}\}/${SYS_CHECK_INTERVAL:-300}}"
+      rendered_line="${rendered_line//\{\{CONFIG_DIR\}\}/$CONFIG_DIR}"
+      rendered_line="${rendered_line//\{\{LOG_DIR\}\}/$LOG_DIR}"
+
+      echo "$rendered_line" >> "$env_file"
+    done < "$TEMPLATE_FILE"
+  else
+    cat <<EOF > "$env_file"
 # Server Setup Environment Configuration
 # Generated on $(date)
 APP_ENV=production
 LOG_PATH=$LOG_DIR/server.log
 SYS_CHECK_INTERVAL=300
 EOF
+  fi
 
   # Set permissions
   chmod 755 "$CONFIG_DIR"

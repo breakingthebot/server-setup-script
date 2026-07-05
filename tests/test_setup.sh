@@ -218,6 +218,78 @@ test_rollback_on_failure() {
   return 0
 }
 
+# Test 9: Configuration template rendering with overrides
+test_template_rendering() {
+  local temp_dir="$SANDBOX/template_test"
+  mkdir -p "$temp_dir"
+  
+  local template_file="$temp_dir/my_env.template"
+  cat <<'EOF' > "$template_file"
+# Template Test file
+ENVIRONMENT={{APP_ENV}}
+PORT={{PORT}}
+DB_HOST={{DB_HOST}}
+CHECK_INTERVAL={{SYS_CHECK_INTERVAL}}
+LOG_FILE={{LOG_PATH}}
+EOF
+
+  local mock_config="$temp_dir/config"
+  local mock_log="$temp_dir/log"
+  local mock_cron="$temp_dir/cron"
+
+  # Run setup using the template and overrides
+  "$SETUP_SCRIPT" --skip-root-check \
+    --config-dir "$mock_config" \
+    --cron-dir "$mock_cron" \
+    --log-dir "$mock_log" \
+    --template "$template_file" \
+    --template-vars "APP_ENV=staging PORT=8080 DB_HOST=db.local" >/dev/null
+
+  # Verify env.conf was generated from template
+  local generated_file="$mock_config/env.conf"
+  if [ ! -f "$generated_file" ]; then
+    echo "env.conf not generated" >&2
+    return 1
+  fi
+
+  # Check replaced placeholders
+  if ! grep -q "ENVIRONMENT=staging" "$generated_file"; then
+    echo "Placeholder ENVIRONMENT=staging failed" >&2
+    return 1
+  fi
+  if ! grep -q "PORT=8080" "$generated_file"; then
+    echo "Placeholder PORT=8080 failed" >&2
+    return 1
+  fi
+  if ! grep -q "DB_HOST=db.local" "$generated_file"; then
+    echo "Placeholder DB_HOST=db.local failed" >&2
+    return 1
+  fi
+  
+  # Check standard fallbacks
+  if ! grep -q "CHECK_INTERVAL=300" "$generated_file"; then
+    echo "Fallback CHECK_INTERVAL=300 failed" >&2
+    return 1
+  fi
+  if ! grep -q "LOG_FILE=$mock_log/server.log" "$generated_file"; then
+    echo "Fallback LOG_FILE=$mock_log/server.log failed" >&2
+    return 1
+  fi
+
+  return 0
+}
+
+# Test 10: Missing template file fails
+test_missing_template_file() {
+  local non_existent_file="$SANDBOX/no_template_here.template"
+  
+  if "$SETUP_SCRIPT" --dry-run --skip-root-check --template "$non_existent_file" &>/dev/null; then
+    return 1 # Should fail
+  else
+    return 0 # Failed as expected
+  fi
+}
+
 # Clean up before running
 rm -rf "$SANDBOX"
 mkdir -p "$SANDBOX"
@@ -231,6 +303,8 @@ run_test "Health check script execution" test_health_check_execution
 run_test "Custom dependencies file" test_custom_dependencies_file
 run_test "Missing dependencies file fails" test_missing_dependencies_file
 run_test "Automatic rollback on failure" test_rollback_on_failure
+run_test "Template configuration rendering" test_template_rendering
+run_test "Missing template file fails" test_missing_template_file
 
 # Clean up sandbox after tests pass
 rm -rf "$SANDBOX"

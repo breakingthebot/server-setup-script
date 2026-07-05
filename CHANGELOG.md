@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-05
+
+### Added
+- Added support for `--template` (`-t`) option to load custom configuration template files.
+- Added support for `--template-vars` option to specify space-separated `KEY=VAL` parameter overrides.
+- Implemented template placeholder compilation with variable override lookup and default setup parameter fallbacks.
+- Added automated test cases checking rendering overrides and missing template failures in `tests/test_setup.sh`.
+
 ## [0.3.0] - 2026-07-05
 
 ### Added

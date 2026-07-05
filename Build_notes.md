@@ -17,6 +17,11 @@ This log documents key architecture decisions, testing approaches, and design co
 - **Execution Traps**: Configured a `trap` on `EXIT` in the setup script that monitors the execution status. If the script exits with a non-zero exit status, rollback is automatically initiated.
 - **Dynamic Path Recording**: Created a path-tracking registry (`CREATED_PATHS`) that dynamically records each file or directory created *only* during the active setup run. Files are deleted and directories are removed only if empty, preventing any accidental deletion of pre-existing user configurations or shared folders.
 
+### 4. Configuration Templating & Overrides
+- **Placeholder Substitution**: Replaced static environment generation with a template renderer capable of replacing `{{KEY}}` placeholders in custom template files.
+- **Variable Override Chains**: Created a two-tiered configuration model: users can pass direct string overrides (via `--template-vars`) which take highest priority, with standard setup script parameters (like `APP_ENV`, `LOG_PATH`) serving as automatic fallback defaults.
+- **Early Configuration Validation**: Enforces template file existence checking at option-parsing time, protecting against downstream configuration compilation failures before any setup operations begin.
+
 ## Iterations Log
 
 ### Iteration 1 (v0.1.0) - Base Setup
@@ -31,3 +36,8 @@ This log documents key architecture decisions, testing approaches, and design co
 - Implemented `trap` on exit for non-zero statuses to trigger cleanups.
 - Added path-tracking and cleanup loops for safe directory/file removal.
 - Added Test 8 (`test_rollback_on_failure`) verifying cleanup occurs if directories are blocked.
+
+### Iteration 4 (v0.4.0) - Configuration Templating & Overrides
+- Added support for `--template` (`-t`) and `--template-vars` parameters.
+- Implemented pure Bash template compiler with override and default fallback chains.
+- Added Test 9 (`test_template_rendering`) and Test 10 (`test_missing_template_file`).
